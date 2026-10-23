@@ -1,0 +1,49 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build installer
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocDoc-Setup
+          path: dist/*.exe
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: DocDoc ${{ steps.ver.outputs.version }}
+          files: dist/*.exe
+          body: |
+            Download **DocDoc-Setup-${{ steps.ver.outputs.version }}.exe** below and run it to install DocDoc on Windows.

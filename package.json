@@ -1,0 +1,54 @@
+{
+  "name": "doc-doc",
+  "productName": "DocDoc",
+  "version": "1.0.0",
+  "description": "A simple, friendly document editor for Windows",
+  "main": "main.js",
+  "author": "iamkyno",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "@turbodocx/html-to-docx": "^1.23.1",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.iamkyno.docdoc",
+    "productName": "DocDoc",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "package.json"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "docx",
+        "name": "Word Document",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DocDoc",
+      "artifactName": "DocDoc-Setup-${version}.exe"
+    }
+  }
+}

@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>DocDoc</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-left" viewBox="0 0 16 16"><path d="M1 2h14M1 6h9M1 10h14M1 14h9" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-center" viewBox="0 0 16 16"><path d="M1 2h14M4 6h8M1 10h14M4 14h8" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 16 16"><path d="M1 2h14M6 6h9M1 10h14M6 14h9" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-justify" viewBox="0 0 16 16"><path d="M1 2h14M1 6h14M1 10h14M1 14h14" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-bullets" viewBox="0 0 16 16"><circle cx="2" cy="3" r="1.4" fill="currentColor"/><circle cx="2" cy="8" r="1.4" fill="currentColor"/><circle cx="2" cy="13" r="1.4" fill="currentColor"/><path d="M5 3h10M5 8h10M5 13h10" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-numbers" viewBox="0 0 16 16"><text x="0" y="5" font-size="5" fill="currentColor">1</text><text x="0" y="10" font-size="5" fill="currentColor">2</text><text x="0" y="15" font-size="5" fill="currentColor">3</text><path d="M5 3h10M5 8h10M5 13h10" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-indent" viewBox="0 0 16 16"><path d="M1 2h14M7 6h8M7 10h8M1 14h14" stroke="currentColor" stroke-width="1.6"/><path d="M1 5l3 3-3 3z" fill="currentColor"/></symbol>
+  <symbol id="i-outdent" viewBox="0 0 16 16"><path d="M1 2h14M7 6h8M7 10h8M1 14h14" stroke="currentColor" stroke-width="1.6"/><path d="M4 5L1 8l3 3z" fill="currentColor"/></symbol>
+</svg>
+
+<header id="ribbon">
+  <nav id="tabs">
+    <button class="tab file-tab" data-tab="file">File</button>
+    <button class="tab active" data-tab="home">Home</button>
+    <button class="tab" data-tab="insert">Insert</button>
+    <button class="tab" data-tab="layout">Layout</button>
+    <button class="tab" data-tab="view">View</button>
+    <span class="spacer"></span>
+    <span id="docname">Document1</span>
+  </nav>
+
+  <!-- FILE -->
+  <section class="panel" data-panel="file">
+    <div class="group"><div class="row">
+      <button class="big" data-cmd="new" title="New (Ctrl+N)"><span class="ico">🗋</span>New</button>
+      <button class="big" data-cmd="open" title="Open (Ctrl+O)"><span class="ico">📂</span>Open</button>
+      <button class="big" data-cmd="save" title="Save (Ctrl+S)"><span class="ico">💾</span>Save</button>
+      <button class="big" data-cmd="saveAs" title="Save As (F12)"><span class="ico">🖫</span>Save As</button>
+      <button class="big" data-cmd="pdf" title="Export as PDF"><span class="ico">📄</span>PDF</button>
+      <button class="big" data-cmd="print" title="Print (Ctrl+P)"><span class="ico">🖨</span>Print</button>
+    </div><label>File</label></div>
+  </section>
+
+  <!-- HOME -->
+  <section class="panel active" data-panel="home">
+    <div class="group">
+      <div class="row">
+        <button class="big" data-cmd="paste" title="Paste (Ctrl+V)"><span class="ico">📋</span>Paste</button>
+        <div class="col">
+          <button data-cmd="cut" title="Cut (Ctrl+X)">✂ Cut</button>
+          <button data-cmd="copy" title="Copy (Ctrl+C)">⧉ Copy</button>
+          <button data-cmd="formatPainter" id="painterBtn" title="Format Painter (Ctrl+Shift+C / Ctrl+Shift+V style)">🖌 Painter</button>
+        </div>
+      </div>
+      <label>Clipboard</label>
+    </div>
+
+    <div class="group">
+      <div class="col">
+        <div class="row">
+          <select id="fontName" title="Font (Ctrl+Shift+F)">
+            <option>Calibri</option><option>Arial</option><option>Times New Roman</option><option>Georgia</option>
+            <option>Verdana</option><option>Tahoma</option><option>Segoe UI</option><option>Cambria</option>
+            <option>Garamond</option><option>Courier New</option><option>Comic Sans MS</option><option>Trebuchet MS</option>
+          </select>
+          <select id="fontSize" title="Font Size (Ctrl+Shift+P)">
+            <option>8</option><option>9</option><option>10</option><option selected>11</option><option>12</option>
+            <option>14</option><option>16</option><option>18</option><option>20</option><option>24</option>
+            <option>28</option><option>36</option><option>48</option><option>72</option>
+          </select>
+          <button data-cmd="growFont" title="Grow Font (Ctrl+Shift+&gt;)">A<sup>▲</sup></button>
+          <button data-cmd="shrinkFont" title="Shrink Font (Ctrl+Shift+&lt;)">A<sup>▼</sup></button>
+          <button data-cmd="clearFormat" title="Clear Formatting (Ctrl+Space)">A<small>⌫</small></button>
+        </div>
+        <div class="row">
+          <button data-cmd="bold" data-state="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+          <button data-cmd="italic" data-state="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+          <button data-cmd="underline" data-state="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+          <button data-cmd="strikeThrough" data-state="strikeThrough" title="Strikethrough"><s>ab</s></button>
+          <button data-cmd="subscript" data-state="subscript" title="Subscript (Ctrl+=)">x<sub>2</sub></button>
+          <button data-cmd="superscript" data-state="superscript" title="Superscript (Ctrl+Shift+=)">x<sup>2</sup></button>
+          <button data-cmd="changeCase" title="Change Case (Shift+F3)">Aa</button>
+          <span class="color-pick" title="Text Highlight Color">
+            <button data-cmd="highlight" class="hl-btn">ab<span class="bar" id="hlBar"></span></button>
+            <input type="color" id="hlColor" value="#ffff00">
+          </span>
+          <span class="color-pick" title="Font Color">
+            <button data-cmd="foreColor"><b>A</b><span class="bar" id="fcBar"></span></button>
+            <input type="color" id="fcColor" value="#c00000">
+          </span>
+        </div>
+      </div>
+      <label>Font</label>
+    </div>
+
+    <div class="group">
+      <div class="col">
+        <div class="row">
+          <button data-cmd="insertUnorderedList" data-state="insertUnorderedList" title="Bullets (Ctrl+Shift+L)"><svg><use href="#i-bullets"/></svg></button>
+          <button data-cmd="insertOrderedList" data-state="insertOrderedList" title="Numbering"><svg><use href="#i-numbers"/></svg></button>
+          <button data-cmd="outdent" title="Decrease Indent (Ctrl+Shift+M)"><svg><use href="#i-outdent"/></svg></button>
+          <button data-cmd="indent" title="Increase Indent (Ctrl+M)"><svg><use href="#i-indent"/></svg></button>
+          <select id="lineSpacing" title="Line Spacing">
+            <option value="1.0">1.0</option><option value="1.15" selected>1.15</option><option value="1.5">1.5</option>
+            <option value="2.0">2.0</option><option value="2.5">2.5</option><option value="3.0">3.0</option>
+          </select>
+        </div>
+        <div class="row">
+          <button data-cmd="justifyLeft" data-state="justifyLeft" title="Align Left (Ctrl+L)"><svg><use href="#i-left"/></svg></button>
+          <button data-cmd="justifyCenter" data-state="justifyCenter" title="Center (Ctrl+E)"><svg><use href="#i-center"/></svg></button>
+          <button data-cmd="justifyRight" data-state="justifyRight" title="Align Right (Ctrl+R)"><svg><use href="#i-right"/></svg></button>
+          <button data-cmd="justifyFull" data-state="justifyFull" title="Justify (Ctrl+J)"><svg><use href="#i-justify"/></svg></button>
+          <span class="color-pick" title="Paragraph Shading">
+            <button data-cmd="shading">▧<span class="bar" id="shBar"></span></button>
+            <input type="color" id="shColor" value="#dbe5f1">
+          </span>
+        </div>
+      </div>
+      <label>Paragraph</label>
+    </div>
+
+    <div class="group">
+      <div class="styles" id="styles">
+        <button data-block="p" title="Normal (Ctrl+Shift+N)"><span style="font-size:13px">Normal</span></button>
+        <button data-block="h1" title="Heading 1 (Ctrl+Alt+1)"><span style="font-size:15px;color:#2f5496">Heading 1</span></button>
+        <button data-block="h2" title="Heading 2 (Ctrl+Alt+2)"><span style="font-size:14px;color:#2f5496">Heading 2</span></button>
+        <button data-block="h3" title="Heading 3 (Ctrl+Alt+3)"><span style="font-size:13px;color:#1f3763">Heading 3</span></button>
+        <button data-block="h4" title="Title"><span style="font-size:17px">Title</span></button>
+        <button data-block="blockquote" title="Quote"><span style="font-size:13px;font-style:italic;color:#555">Quote</span></button>
+      </div>
+      <label>Styles</label>
+    </div>
+
+    <div class="group">
+      <div class="col">
+        <button data-cmd="find" title="Find (Ctrl+F)">🔍 Find</button>
+        <button data-cmd="replace" title="Replace (Ctrl+H)">⇄ Replace</button>
+        <button data-cmd="selectAll" title="Select All (Ctrl+A)">⬚ Select</button>
+      </div>
+      <label>Editing</label>
+    </div>
+  </section>
+
+  <!-- INSERT -->
+  <section class="panel" data-panel="insert">
+    <div class="group"><div class="row">
+      <button class="big" data-cmd="pageBreak" title="Page Break (Ctrl+Enter)"><span class="ico">⤓</span>Page<br>Break</button>
+    </div><label>Pages</label></div>
+
+    <div class="group"><div class="row">
+      <div class="dropdown">
+        <button class="big" data-dd="tableGrid" title="Insert Table"><span class="ico">▦</span>Table ▾</button>
+        <div class="menu" id="tableGrid">
+          <div class="grid" id="tableCells"></div>
+          <div class="grid-label" id="tableLabel">Insert Table</div>
+        </div>
+      </div>
+    </div><label>Tables</label></div>
+
+    <div class="group"><div class="row">
+      <button class="big" data-cmd="image" title="Insert Picture"><span class="ico">🖼</span>Pictures</button>
+      <div class="dropdown">
+        <button class="big" data-dd="shapeMenu" title="Insert Shape"><span class="ico">⬟</span>Shapes ▾</button>
+        <div class="menu shapes" id="shapeMenu"></div>
+      </div>
+      <button class="big" data-cmd="textBox" title="Text Box"><span class="ico">🅰</span>Text<br>Box</button>
+    </div><label>Illustrations</label></div>
+
+    <div class="group"><div class="col">
+      <button data-cmd="link" title="Link (Ctrl+K)">🔗 Link</button>
+      <button data-cmd="unlink" title="Remove Link">⛓ Unlink</button>
+      <button data-cmd="hr" title="Horizontal Line">― Line</button>
+    </div><label>Links</label></div>
+
+    <div class="group"><div class="col">
+      <button data-cmd="date" title="Date &amp; Time (Alt+Shift+D)">📅 Date</button>
+      <div class="dropdown">
+        <button data-dd="symbolMenu" title="Symbol">Ω Symbol ▾</button>
+        <div class="menu symbols" id="symbolMenu"></div>
+      </div>
+    </div><label>Text</label></div>
+  </section>
+
+  <!-- LAYOUT -->
+  <section class="panel" data-panel="layout">
+    <div class="group"><div class="col">
+      <label class="inline">Margins
+        <select id="margins">
+          <option value="25.4" selected>Normal (2.54 cm)</option>
+          <option value="12.7">Narrow (1.27 cm)</option>
+          <option value="19.05">Moderate (1.91 cm)</option>
+          <option value="50.8">Wide (5.08 cm)</option>
+        </select></label>
+      <label class="inline">Orientation
+        <select id="orientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+      <label class="inline">Size
+        <select id="pageSize"><option value="A4">A4 (21 × 29.7 cm)</option><option value="Letter">Letter (8.5 × 11 in)</option><option value="Legal">Legal (8.5 × 14 in)</option></select></label>
+    </div><label>Page Setup</label></div>
+
+    <div class="group"><div class="col">
+      <label class="inline">Columns
+        <select id="columns"><option value="1">One</option><option value="2">Two</option><option value="3">Three</option></select></label>
+      <label class="inline">Page Color <input type="color" id="pageColor" value="#ffffff"></label>
+    </div><label>Page Background</label></div>
+
+    <div class="group" id="objGroup"><div class="col">
+      <div class="row">
+        <button data-obj="inline" title="In line with text">▭ In Line</button>
+        <button data-obj="left" title="Wrap left">◧ Wrap Left</button>
+        <button data-obj="right" title="Wrap right">◨ Wrap Right</button>
+      </div>
+      <div class="row">
+        <button data-obj="front" title="Bring to Front">⬆ Front</button>
+        <button data-obj="back" title="Send to Back">⬇ Back</button>
+        <label class="inline">Fill <input type="color" id="shapeFill" value="#4472c4"></label>
+        <label class="inline">Outline <input type="color" id="shapeStroke" value="#2f528f"></label>
+      </div>
+    </div><label>Arrange (select a picture or shape)</label></div>
+  </section>
+
+  <!-- VIEW -->
+  <section class="panel" data-panel="view">
+    <div class="group"><div class="row">
+      <button data-cmd="zoomOut">－</button>
+      <input type="range" id="zoomRange" min="50" max="200" step="10" value="100">
+      <button data-cmd="zoomIn">＋</button>
+      <button data-cmd="zoomReset">100%</button>
+    </div><label>Zoom</label></div>
+    <div class="group"><div class="col">
+      <label class="inline"><input type="checkbox" id="spellToggle" checked> Spell check</label>
+      <button data-cmd="shortcuts">⌨ Keyboard Shortcuts (F1)</button>
+    </div><label>Show</label></div>
+  </section>
+</header>
+
+<div id="findbar" hidden>
+  <input id="findInput" placeholder="Find…">
+  <input id="replaceInput" placeholder="Replace with…">
+  <button id="findNext">Next</button>
+  <button id="replaceOne">Replace</button>
+  <button id="replaceAll">Replace All</button>
+  <span id="findCount"></span>
+  <button id="findClose" title="Close (Esc)">✕</button>
+</div>
+
+<main id="workspace">
+  <div id="zoomer">
+    <div id="page" class="page">
+      <div id="editor" contenteditable="true" spellcheck="true"><p><br></p></div>
+    </div>
+  </div>
+</main>
+
+<footer id="status">
+  <span id="pageInfo">Page 1 of 1</span>
+  <span id="wordCount">0 words</span>
+  <span id="charCount">0 characters</span>
+  <span class="spacer"></span>
+  <span id="saveState"></span>
+  <span id="zoomLabel">100%</span>
+</footer>
+
+<div id="modal" hidden><div class="box"><div id="modalBody"></div><div class="actions"><button id="modalOk">OK</button><button id="modalCancel">Cancel</button></div></div></div>
+
+<script src="app.js"></script>
+</body>
+</html>
