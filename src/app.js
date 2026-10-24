@@ -734,8 +734,12 @@
   const EXAM = [
     { id: 'markBox', name: 'Mark box', hint: 'Empty box at the right margin',
       icon: '<rect x="12" y="4" width="26" height="26" fill="#fff" stroke="#000" stroke-width="2"/>' },
-    { id: 'splitBox', name: 'Mark out of', hint: 'Box with space and "/ 5"',
+    { id: 'splitBox', name: 'Mark out of', hint: 'Side by side: space | 5',
       icon: '<rect x="3" y="7" width="40" height="20" fill="#fff" stroke="#000" stroke-width="2"/><line x1="23" y1="7" x2="23" y2="27" stroke="#000" stroke-width="2"/><text x="26" y="22" font-size="11" font-family="Arial">5</text>' },
+    { id: 'stackBox', name: 'Mark out of (stacked)', hint: 'Space on top, 5 underneath',
+      icon: '<rect x="13" y="2" width="20" height="30" fill="#fff" stroke="#000" stroke-width="2"/><line x1="13" y1="17" x2="33" y2="17" stroke="#000" stroke-width="2"/><text x="20" y="29" font-size="10" font-family="Arial">5</text>' },
+    { id: 'circleOutOf', name: 'Mark out of (circle)', hint: 'Circle split in half, 5 below',
+      icon: '<circle cx="23" cy="17" r="15" fill="#fff" stroke="#000" stroke-width="2"/><line x1="8" y1="17" x2="38" y2="17" stroke="#000" stroke-width="2"/><text x="20" y="29" font-size="10" font-family="Arial">5</text>' },
     { id: 'allocation', name: 'Mark allocation', hint: '"(5)" at the right margin',
       icon: '<text x="9" y="23" font-size="15" font-family="Arial">(5)</text>' },
     { id: 'markCircle', name: 'Mark circle', hint: 'Round box for a score',
@@ -811,6 +815,22 @@
         floatBox(`<table style="border-collapse:collapse;width:100%;height:100%;margin:0"><tbody><tr>${cell('', 'width:50%;height:34px;text-align:center;vertical-align:middle')}${cell('5', 'width:50%;text-align:center;vertical-align:middle;font-weight:bold')}</tr></tbody></table>`,
           { w: 84, h: 36, left: right(84), top: caretTop(), style: 'padding:0;border:none;background:transparent' });
         break;
+      case 'stackBox':
+        floatBox(`<table style="border-collapse:collapse;width:100%;margin:0"><tbody>
+<tr>${cell('', 'height:30px;text-align:center;vertical-align:middle;padding:0')}</tr>
+<tr>${cell('5', 'height:22px;text-align:center;vertical-align:middle;font-weight:bold;padding:0')}</tr>
+</tbody></table>`, { w: 44, left: right(44), top: caretTop(), style: 'padding:0;border:none;background:transparent' });
+        break;
+      case 'circleOutOf': {
+        const half = (content, extra) => `<td style="border:none;height:26px;min-width:0;text-align:center;padding:0;${extra}">${content || '<br>'}</td>`;
+        const el = floatBox(`<table style="border-collapse:collapse;width:100%;margin:0"><tbody>
+<tr>${half('', 'vertical-align:bottom')}</tr>
+<tr>${half('5', 'border-top:1.5px solid #000000;vertical-align:top;font-weight:bold')}</tr>
+</tbody></table>`, { w: 58, h: 58, left: right(58), top: caretTop(), style: `padding:0;border:${B};border-radius:999px;overflow:hidden;${centered}` });
+        // Word has no round boxes: this one exports as a stacked box
+        el.dataset.export = 'stack';
+        break;
+      }
       case 'allocation':
         floatBox('<p style="text-align:right;margin:0">(5)</p>', { w: 50, left: right(50), top: caretTop(), style: 'padding:0;border:none;background:transparent' });
         break;
@@ -1815,6 +1835,8 @@ ${rows}
     }
     // Word export cannot read a <div> inside a table cell, so unwrap text box bodies.
     $$('.tb-body', clone).forEach((b) => b.replaceWith(...b.childNodes));
+    // Round "mark out of" boxes become stacked boxes with full borders.
+    $$('.textbox[data-export="stack"] td', clone).forEach((td) => (td.style.border = '1.5px solid #000000'));
     // A box that only holds a table (e.g. "mark out of") exports as that table.
     $$('.textbox', clone).forEach((tb) => {
       const kids = Array.from(tb.children);

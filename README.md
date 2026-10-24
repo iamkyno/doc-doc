@@ -13,7 +13,7 @@ A simple, friendly document editor for Windows. Word-style ribbon, the usual key
 - **Home:** cut/copy/paste, format painter, fonts and sizes, bold/italic/underline/strikethrough, sub/superscript, change case, text colour, highlight, bullets, numbering, indent, alignment, line spacing, paragraph shading, styles (Normal, Headings, Title, Quote), find & replace
 - **Insert:** page break, tables, pictures (also paste or drag in), 18 shapes, text boxes, links, horizontal line, date, symbols
 - **Shape Format tab** (appears when a text box, shape or picture is selected): fill colour, no fill, transparency, border colour/weight/style (solid, dashed, dotted, double), rounded corners, shadow, rotation, inner margin, text position, exact size in cm, wrapping, front/back, delete
-- **Exam paper boxes** (Insert → Shapes): mark box, mark out of (__ / 5), mark allocation (5), mark circle, total box, tick boxes (click to tick), answer lines, dotted lines, answer box, examiner's-use table, candidate details with number boxes, instructions box. Mark boxes stay beside their question as you edit
+- **Exam paper boxes** (Insert → Shapes): mark box, mark out of (side by side, stacked, or circle), mark allocation (5), mark circle, total box, tick boxes (click to tick), answer lines, dotted lines, answer box, examiner's-use table, candidate details with number boxes, instructions box. Mark boxes stay beside their question as you edit
 - **Paragraph borders:** bottom, top, box around paragraphs
 - **Layout:** margins, orientation, page size, columns, page colour
 - **View:** zoom (or Ctrl + mouse wheel), spell check
