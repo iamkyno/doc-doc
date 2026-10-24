@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   openFile: () => ipcRenderer.invoke('open-file'),
@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld('api', {
   edit: (cmd) => ipcRenderer.send('edit', cmd),
   docxBasic: (bytes) => ipcRenderer.invoke('docx-basic', bytes),
   listFonts: () => ipcRenderer.invoke('list-fonts'),
+  contextInfo: (info) => ipcRenderer.sendSync('context-info', info),
+  openPath: (p) => ipcRenderer.invoke('open-path', p),
+  pathForFile: (f) => webUtils.getPathForFile(f),
+  fetchImage: (url) => ipcRenderer.invoke('fetch-image', url),
   closeNow: () => ipcRenderer.send('close-now'),
   onOpenPath: (cb) => ipcRenderer.on('open-path-result', (_e, r) => cb(r)),
 });

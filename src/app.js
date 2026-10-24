@@ -35,8 +35,14 @@
     if (sel.rangeCount && inEditor(sel.anchorNode)) {
       state.savedRange = sel.getRangeAt(0).cloneRange();
       updateToolbarState();
+      updateTableTab();
     }
   });
+  // Remember the cursor right now (selectionchange arrives a little later than key presses).
+  function captureSel() {
+    const sel = window.getSelection();
+    if (sel.rangeCount && inEditor(sel.anchorNode)) state.savedRange = sel.getRangeAt(0).cloneRange();
+  }
   function restoreSelection() {
     const sel = window.getSelection();
     // Selection is still live in the editor: leave it alone.
@@ -49,6 +55,7 @@
     }
   }
   function exec(cmd, val = null) {
+    flushHistory();
     restoreSelection();
     document.execCommand(cmd, false, val);
     markDirty();
@@ -99,11 +106,148 @@
       updateTitle();
     }
     scheduleStats();
+    scheduleSnapshot();
   }
   editor.addEventListener('input', () => {
     ensureParagraph();
     markDirty();
     positionHandles();
+  });
+
+  /* ================= Undo / Redo ================= */
+  // Snapshot history: every change is recorded, including the ones done outside the
+  // browser's own editing commands (alignment, tables, boxes, shape formatting...).
+  const hist = { stack: [], idx: -1, timer: null, restoring: false };
+  const imgIds = new Map();
+  const imgUrls = [];
+  function packHtml(h) {
+    // store each embedded picture once instead of in every snapshot
+    return h
+      .replace(/ ?\bselected-obj\b/g, '')
+      .replace(/src="(data:[^"]{256,})"/g, (m, url) => {
+        let id = imgIds.get(url);
+        if (id === undefined) {
+          id = imgUrls.length;
+          imgUrls.push(url);
+          imgIds.set(url, id);
+        }
+        return `src="ddimg:${id}"`;
+      });
+  }
+  function unpackHtml(h) {
+    return h.replace(/src="ddimg:(\d+)"/g, (m, id) => `src="${imgUrls[+id]}"`);
+  }
+  function nodePath(node) {
+    const path = [];
+    while (node && node !== editor) {
+      const parent = node.parentNode;
+      if (!parent) return null;
+      path.unshift(Array.prototype.indexOf.call(parent.childNodes, node));
+      node = parent;
+    }
+    return node === editor ? path : null;
+  }
+  function nodeAtPath(path) {
+    let n = editor;
+    for (const i of path || []) {
+      if (!n.childNodes[i]) return null;
+      n = n.childNodes[i];
+    }
+    return n;
+  }
+  function saveSel() {
+    const sel = window.getSelection();
+    const r = sel.rangeCount && inEditor(sel.anchorNode) ? sel.getRangeAt(0) : state.savedRange;
+    if (!r || !inEditor(r.startContainer)) return null;
+    return { s: nodePath(r.startContainer), so: r.startOffset, e: nodePath(r.endContainer), eo: r.endOffset };
+  }
+  const maxOffset = (n) => (n.nodeType === 3 ? n.length : n.childNodes.length);
+  function restoreSel(s) {
+    const a = s && nodeAtPath(s.s);
+    const b = s && nodeAtPath(s.e);
+    if (!a || !b) {
+      editor.focus({ preventScroll: true });
+      return;
+    }
+    const host = (a.nodeType === 1 ? a : a.parentElement).closest('[contenteditable="true"]') || editor;
+    host.focus({ preventScroll: true });
+    try {
+      const r = document.createRange();
+      r.setStart(a, Math.min(s.so, maxOffset(a)));
+      r.setEnd(b, Math.min(s.eo, maxOffset(b)));
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      state.savedRange = r.cloneRange();
+    } catch (_) { /* stale position */ }
+  }
+  function snapshotNow() {
+    clearTimeout(hist.timer);
+    hist.timer = null;
+    const html = packHtml(editor.innerHTML);
+    const cur = hist.stack[hist.idx];
+    if (cur && cur.html === html) {
+      cur.sel = saveSel() || cur.sel;
+      return;
+    }
+    hist.stack.length = hist.idx + 1;
+    hist.stack.push({ html, sel: saveSel() });
+    if (hist.stack.length > 300) hist.stack.shift();
+    hist.idx = hist.stack.length - 1;
+    updateUndoButtons();
+  }
+  function scheduleSnapshot() {
+    if (hist.restoring) return;
+    clearTimeout(hist.timer);
+    hist.timer = setTimeout(snapshotNow, 500);
+    updateUndoButtons();
+  }
+  // Record pending typing as its own step before another command runs.
+  function flushHistory() {
+    if (hist.timer) snapshotNow();
+  }
+  function resetHistory() {
+    clearTimeout(hist.timer);
+    hist.timer = null;
+    hist.stack = [];
+    hist.idx = -1;
+    snapshotNow();
+  }
+  function restoreSnapshot(snap) {
+    hist.restoring = true;
+    selectObj(null);
+    editor.innerHTML = unpackHtml(snap.html);
+    restoreSel(snap.sel);
+    relayoutFloats();
+    state.dirty = false;
+    markDirty();
+    hist.restoring = false;
+    updateToolbarState();
+    updateTableTab();
+    updateUndoButtons();
+  }
+  function undo() {
+    flushHistory();
+    if (hist.idx <= 0) return;
+    hist.idx--;
+    restoreSnapshot(hist.stack[hist.idx]);
+  }
+  function redo() {
+    flushHistory();
+    if (hist.idx >= hist.stack.length - 1) return;
+    hist.idx++;
+    restoreSnapshot(hist.stack[hist.idx]);
+  }
+  function updateUndoButtons() {
+    $('#undoBtn').disabled = hist.idx <= 0 && !hist.timer;
+    $('#redoBtn').disabled = hist.idx >= hist.stack.length - 1;
+  }
+  // Undo from outside our shortcuts (e.g. a system undo key) goes through the same history.
+  editor.addEventListener('beforeinput', (e) => {
+    if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
+      e.preventDefault();
+      if (e.inputType === 'historyUndo') undo(); else redo();
+    }
   });
 
   /* ================= Ribbon tabs ================= */
@@ -116,8 +260,12 @@
 
   // Keep editor selection when clicking ribbon buttons.
   $('#ribbon').addEventListener('mousedown', (e) => {
-    if (e.target.closest('button') && !e.target.closest('.tab')) e.preventDefault();
+    captureSel();
+    flushHistory();
+    // buttons (tabs included) never take focus away from the document
+    if (e.target.closest('button')) e.preventDefault();
   });
+  $('#ribbon').addEventListener('focusin', flushHistory);
 
   /* ================= Commands ================= */
   const commands = {
@@ -135,8 +283,18 @@
     italic: () => exec('italic'),
     underline: () => exec('underline'),
     strikeThrough: () => exec('strikeThrough'),
-    subscript: () => exec('subscript'),
-    superscript: () => exec('superscript'),
+    subscript: () => execTag('subscript'),
+    superscript: () => execTag('superscript'),
+    undo: () => {
+      const a = document.activeElement;
+      if (a && /^(INPUT|TEXTAREA)$/.test(a.tagName)) document.execCommand('undo');
+      else undo();
+    },
+    redo: () => {
+      const a = document.activeElement;
+      if (a && /^(INPUT|TEXTAREA)$/.test(a.tagName)) document.execCommand('redo');
+      else redo();
+    },
     insertUnorderedList: () => { exec('insertUnorderedList'); fixLists(); },
     insertOrderedList: () => { exec('insertOrderedList'); fixLists(); },
     justifyLeft: () => align('left'),
@@ -175,6 +333,16 @@
       if (ok) api.closeNow && api.closeNow();
     },
   };
+  // Sub/superscript as <sub>/<sup> tags, so the text also gets smaller (and exports to Word).
+  function execTag(cmd) {
+    flushHistory();
+    restoreSelection();
+    document.execCommand('styleWithCSS', false, false);
+    document.execCommand(cmd);
+    document.execCommand('styleWithCSS', false, true);
+    markDirty();
+    updateToolbarState();
+  }
   function clip(cmd) {
     restoreSelection();
     if (api.edit) api.edit(cmd);
@@ -189,6 +357,9 @@
       if (now - (lastRun[cmd] || 0) < 400) return;
       lastRun[cmd] = now;
     }
+    if (cmd !== 'undo' && cmd !== 'redo') flushHistory();
+    if (cmd.startsWith('table:')) return tableCmd(cmd.slice(6));
+    if (cmd.startsWith('obj:')) return arrange(cmd.slice(4));
     if (commands[cmd]) commands[cmd]();
   }
   $$('[data-cmd]').forEach((b) => b.addEventListener('click', () => run(b.dataset.cmd)));
@@ -394,6 +565,7 @@
   function openFontList() {
     fontList.hidden = false;
     renderFontList();
+    placeMenu(fontList, $('#fontBox'));
   }
   function closeFontList() {
     fontList.hidden = true;
@@ -409,14 +581,17 @@
     try { localStorage.setItem('docdoc-recent-fonts', JSON.stringify(fonts.recent)); } catch (_) { /* ignore */ }
     editor.focus({ preventScroll: true });
   }
+  fontInput.addEventListener('mousedown', captureSel);
   fontInput.addEventListener('focus', () => {
     fontBefore = fontInput.value;
     fontInput.select();
     openFontList();
   });
   fontInput.addEventListener('input', () => {
+    const wasHidden = fontList.hidden;
     fontList.hidden = false;
     renderFontList(fontInput.value);
+    if (wasHidden) placeMenu(fontList, $('#fontBox'));
   });
   fontInput.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -545,6 +720,8 @@
       fs.add(o);
     }
     fs.value = ptStr;
+    const lh = block && block !== editor ? parseFloat(block.style.lineHeight) : NaN;
+    nearestOption($('#lineSpacing'), Number.isFinite(lh) ? lh : 1.15);
   }
 
   /* ================= Insert ================= */
@@ -554,13 +731,18 @@
     const tpl = document.createElement('template');
     tpl.innerHTML = html;
     const nodes = Array.from(tpl.content.childNodes);
-    let block = anchorElement().closest('p,h1,h2,h3,h4,h5,h6,blockquote,ul,ol,table,pre,.textbox > *');
-    while (block && block.parentElement && block.parentElement !== editor && !block.parentElement.classList.contains('textbox')) {
-      block = block.parentElement.closest('p,h1,h2,h3,h4,h5,h6,blockquote,ul,ol,table,pre') || block.parentElement;
-      if (block === editor) break;
+    // climb to the block that sits directly in the page, a text box or a boxed paragraph
+    const isContainer = (n) => n === editor || n.classList.contains('tb-body') || n.classList.contains('para-box');
+    let block = anchorElement().closest('p,h1,h2,h3,h4,h5,h6,blockquote,ul,ol,table,pre,div');
+    if (block && isContainer(block)) block = null;
+    while (block && block.parentElement && !isContainer(block.parentElement)) block = block.parentElement;
+    const container = block ? block.parentElement : (anchorElement().closest('.tb-body') || editor);
+    if (!block) container.append(...nodes);
+    else if (block.tagName === 'P' && !block.textContent.trim() && !block.querySelector('img,.shape')) {
+      // keep boxes that were anchored to this empty line attached to what replaces it
+      if (block.dataset.aid && nodes[0] && nodes[0].nodeType === 1) nodes[0].dataset.aid = block.dataset.aid;
+      block.replaceWith(...nodes);
     }
-    if (!block || block === editor) editor.append(...nodes);
-    else if (block.tagName === 'P' && !block.textContent.trim() && !block.querySelector('img,.shape')) block.replaceWith(...nodes);
     else block.after(...nodes);
     const last = nodes[nodes.length - 1];
     const target = last && last.nodeType === 1 && last.tagName === 'P' ? last : (nodes[0].querySelector && nodes[0].querySelector('td')) || last;
@@ -671,9 +853,24 @@
       const dd = b.closest('.dropdown');
       const was = dd.classList.contains('open');
       closeDropdowns();
-      if (!was) dd.classList.add('open');
+      if (!was) {
+        dd.classList.add('open');
+        placeMenu(dd.querySelector('.menu'), b);
+      }
     })
   );
+  // Menus are position:fixed (the ribbon can scroll sideways on small windows).
+  function placeMenu(menu, anchor) {
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    menu.style.left = Math.max(4, Math.min(r.left, window.innerWidth - mw - 6)) + 'px';
+    menu.style.top = Math.max(4, Math.min(r.bottom + 2, window.innerHeight - mh - 6)) + 'px';
+  }
+  $$('.panel').forEach((pnl) => pnl.addEventListener('scroll', () => { closeDropdowns(); closeFontList(); }));
+  window.addEventListener('resize', () => { closeDropdowns(); closeFontList(); });
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.dropdown')) closeDropdowns();
   });
@@ -1076,8 +1273,32 @@ ${rows}
     mover.style.left = x + 'px';
     mover.style.top = y - 22 + 'px';
   }
+  // Is the point over actual text (not just empty space in a paragraph)?
+  function textAtPoint(x, y) {
+    const r = document.caretRangeFromPoint(x, y);
+    if (!r || r.startContainer.nodeType !== 3) return false;
+    const t = r.startContainer;
+    for (const off of [r.startOffset - 1, r.startOffset]) {
+      if (off < 0 || off >= t.length) continue;
+      const rr = document.createRange();
+      rr.setStart(t, off);
+      rr.setEnd(t, off + 1);
+      const b = rr.getBoundingClientRect();
+      if (x >= b.left - 1 && x <= b.right + 1 && y >= b.top && y <= b.bottom) return true;
+    }
+    return false;
+  }
   editor.addEventListener('mousedown', (e) => {
-    const o = objFrom(e.target);
+    let o = objFrom(e.target);
+    if (!o && e.button === 0 && !textAtPoint(e.clientX, e.clientY)) {
+      // an object sent behind the text can still be clicked where there is no text
+      o = document.elementsFromPoint(e.clientX, e.clientY).map(objFrom).find(Boolean) || null;
+      if (o && o.classList.contains('textbox')) {
+        selectObj(o);
+        e.preventDefault();
+        return;
+      }
+    }
     selectObj(o);
     if (o && o.tagName === 'IMG') {
       // select the image as a node so copy/cut/delete work naturally
@@ -1153,8 +1374,8 @@ ${rows}
       return;
     }
     if (mode === 'front' || mode === 'back') {
-      el.style.zIndex = mode === 'front' ? 10 : 0;
-      if (mode === 'back' && el.classList.contains('floating')) el.style.zIndex = 0;
+      // the editor is its own stacking layer, so -1 sits behind the text but above the page
+      el.style.zIndex = mode === 'front' ? '10' : '-1';
     } else {
       el.classList.remove('wrap-left', 'wrap-right');
       if (el.classList.contains('floating') && el.tagName !== 'IMG') {
@@ -1352,6 +1573,288 @@ ${rows}
   }
   $$('[data-border]').forEach((b) => b.addEventListener('click', () => { closeDropdowns(); paraBorder(b.dataset.border); }));
 
+  /* ================= Table tools ================= */
+  function currentCell() {
+    const el = anchorElement();
+    const c = el && el.closest && el.closest('td,th');
+    return c && inEditor(c) ? c : null;
+  }
+  // Map of the table: grid[row][col] -> cell, with merged cells repeated over their area.
+  function tableGrid(table) {
+    const rows = Array.from(table.rows);
+    const grid = rows.map(() => []);
+    rows.forEach((tr, r) => {
+      let c = 0;
+      for (const cell of tr.cells) {
+        while (grid[r][c]) c++;
+        const rs = cell.rowSpan || 1;
+        const cs = cell.colSpan || 1;
+        for (let i = 0; i < rs && r + i < rows.length; i++) {
+          for (let j = 0; j < cs; j++) grid[r + i][c + j] = cell;
+        }
+        c += cs;
+      }
+    });
+    const pos = new Map();
+    grid.forEach((row, r) => row.forEach((cell, c) => { if (cell && !pos.has(cell)) pos.set(cell, { r, c }); }));
+    return { rows, grid, pos, width: Math.max(0, ...grid.map((g) => g.length)) };
+  }
+  function selectedCells(table) {
+    const r = currentRange();
+    const out = [];
+    if (r && !r.collapsed) for (const row of table.rows) for (const c of row.cells) if (r.intersectsNode(c)) out.push(c);
+    return out;
+  }
+  function blankCellLike(src) {
+    const c = src.cloneNode(false);
+    c.removeAttribute('rowspan');
+    c.removeAttribute('colspan');
+    c.style.width = '';
+    if (!c.getAttribute('style')) c.removeAttribute('style');
+    c.innerHTML = '<br>';
+    return c;
+  }
+  function setSpan(cell, rs, cs) {
+    if (rs > 1) cell.rowSpan = rs; else cell.removeAttribute('rowspan');
+    if (cs > 1) cell.colSpan = cs; else cell.removeAttribute('colspan');
+  }
+  // Put a new cell into row r so that it sits at grid column c.
+  function insertCellAt(g, r, c, cell) {
+    const tr = g.rows[r];
+    let before = null;
+    for (const x of tr.cells) {
+      const p = g.pos.get(x);
+      if (p && p.r === r && p.c > c) { before = x; break; }
+    }
+    tr.insertBefore(cell, before);
+  }
+  function caretIn(node) {
+    if (!node) return;
+    const r = document.createRange();
+    r.selectNodeContents(node);
+    r.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    state.savedRange = r.cloneRange();
+  }
+  function removeTable(table) {
+    let next = table.nextElementSibling;
+    if (!next || next.tagName !== 'P') {
+      next = document.createElement('p');
+      next.innerHTML = '<br>';
+      table.after(next);
+    }
+    table.remove();
+    caretIn(next);
+  }
+  function tableCmd(cmd) {
+    restoreSelection();
+    const cell = currentCell();
+    if (!cell) return;
+    const table = cell.closest('table');
+    flushHistory();
+    const g = tableGrid(table);
+    const p = g.pos.get(cell);
+    const rs = cell.rowSpan || 1;
+    const cs = cell.colSpan || 1;
+    const chosen = selectedCells(table);
+    const styleCells = chosen.length ? chosen : [cell];
+    const line = '1px solid #000000';
+    switch (cmd) {
+      case 'rowAbove':
+      case 'rowBelow': {
+        const above = cmd === 'rowAbove';
+        const r = above ? p.r : p.r + rs - 1;
+        const tr = document.createElement('tr');
+        const seen = new Set();
+        for (let c = 0; c < g.width; c++) {
+          const x = g.grid[r][c];
+          if (!x || seen.has(x)) continue;
+          seen.add(x);
+          const xp = g.pos.get(x);
+          const across = above ? xp.r < r : xp.r + (x.rowSpan || 1) - 1 > r;
+          if (across) { x.rowSpan = (x.rowSpan || 1) + 1; continue; }
+          const nc = blankCellLike(x);
+          setSpan(nc, 1, x.colSpan || 1);
+          tr.appendChild(nc);
+        }
+        if (above) g.rows[r].before(tr); else g.rows[r].after(tr);
+        caretIn(tr.cells[0] || cell);
+        break;
+      }
+      case 'colLeft':
+      case 'colRight': {
+        const left = cmd === 'colLeft';
+        const c = left ? p.c : p.c + cs - 1;
+        const seen = new Set();
+        for (let r = 0; r < g.rows.length; r++) {
+          const x = g.grid[r][c];
+          if (!x || seen.has(x)) continue;
+          seen.add(x);
+          const xp = g.pos.get(x);
+          const across = left ? xp.c < c : xp.c + (x.colSpan || 1) - 1 > c;
+          if (across) { x.colSpan = (x.colSpan || 1) + 1; continue; }
+          const nc = blankCellLike(x);
+          setSpan(nc, x.rowSpan || 1, 1);
+          if (left) x.before(nc); else x.after(nc);
+        }
+        break;
+      }
+      case 'delRow': {
+        const r = p.r;
+        const seen = new Set();
+        for (let c = 0; c < g.width; c++) {
+          const x = g.grid[r][c];
+          if (!x || seen.has(x)) continue;
+          seen.add(x);
+          const xp = g.pos.get(x);
+          const xrs = x.rowSpan || 1;
+          if (xrs > 1) {
+            setSpan(x, xrs - 1, x.colSpan || 1);
+            if (xp.r === r && g.rows[r + 1]) insertCellAt(g, r + 1, xp.c, x); // keep a tall cell
+          }
+        }
+        g.rows[r].remove();
+        if (!table.rows.length) removeTable(table);
+        else caretIn((table.rows[Math.min(r, table.rows.length - 1)].cells[0]));
+        break;
+      }
+      case 'delCol': {
+        const c = p.c;
+        const seen = new Set();
+        for (let r = 0; r < g.rows.length; r++) {
+          const x = g.grid[r][c];
+          if (!x || seen.has(x)) continue;
+          seen.add(x);
+          if ((x.colSpan || 1) > 1) setSpan(x, x.rowSpan || 1, x.colSpan - 1);
+          else x.remove();
+        }
+        Array.from(table.rows).forEach((tr) => { if (!tr.cells.length) tr.remove(); });
+        if (!table.rows.length || !table.querySelector('td,th')) removeTable(table);
+        else caretIn(table.rows[Math.min(p.r, table.rows.length - 1)].cells[0]);
+        break;
+      }
+      case 'delTable':
+        removeTable(table);
+        break;
+      case 'merge': {
+        if (chosen.length < 2) {
+          $('#saveState').textContent = 'Select two or more cells to merge';
+          return;
+        }
+        let r0 = Infinity, c0 = Infinity, r1 = -1, c1 = -1;
+        const grow = (x) => {
+          const xp = g.pos.get(x);
+          r0 = Math.min(r0, xp.r);
+          c0 = Math.min(c0, xp.c);
+          r1 = Math.max(r1, xp.r + (x.rowSpan || 1) - 1);
+          c1 = Math.max(c1, xp.c + (x.colSpan || 1) - 1);
+        };
+        chosen.forEach(grow);
+        // widen the area until no merged cell sticks out of it
+        for (let changed = true; changed;) {
+          changed = false;
+          const before = `${r0},${c0},${r1},${c1}`;
+          for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (g.grid[r] && g.grid[r][c]) grow(g.grid[r][c]);
+          if (`${r0},${c0},${r1},${c1}` !== before) changed = true;
+        }
+        const tl = g.grid[r0][c0];
+        const seen = new Set([tl]);
+        for (let r = r0; r <= r1; r++) {
+          for (let c = c0; c <= c1; c++) {
+            const x = g.grid[r][c];
+            if (!x || seen.has(x)) continue;
+            seen.add(x);
+            if (x.textContent.trim() || x.querySelector('img,table')) {
+              if (!tl.textContent.trim() && !tl.querySelector('img,table')) tl.innerHTML = '';
+              else tl.appendChild(document.createElement('br'));
+              while (x.firstChild) tl.appendChild(x.firstChild);
+            }
+            x.remove();
+          }
+        }
+        setSpan(tl, r1 - r0 + 1, c1 - c0 + 1);
+        caretIn(tl);
+        break;
+      }
+      case 'split': {
+        if (rs === 1 && cs === 1) return;
+        for (let r = p.r; r < p.r + rs; r++) {
+          for (let c = p.c; c < p.c + cs; c++) {
+            if (r === p.r && c === p.c) continue;
+            if (g.rows[r]) insertCellAt(g, r, c, blankCellLike(cell));
+          }
+        }
+        setSpan(cell, 1, 1);
+        break;
+      }
+      case 'shade':
+        styleCells.forEach((c) => (c.style.backgroundColor = $('#cellShade').value));
+        break;
+      case 'noShade':
+        styleCells.forEach((c) => (c.style.backgroundColor = ''));
+        break;
+      case 'vTop':
+      case 'vMiddle':
+      case 'vBottom':
+        styleCells.forEach((c) => (c.style.verticalAlign = { vTop: 'top', vMiddle: 'middle', vBottom: 'bottom' }[cmd]));
+        break;
+      case 'bordersAll':
+        g.pos.forEach((_, c) => { c.style.border = line; });
+        break;
+      case 'bordersNone':
+        g.pos.forEach((_, c) => { c.style.border = 'none'; });
+        break;
+      case 'bordersOutside': {
+        const last = g.rows.length - 1;
+        g.pos.forEach((xp, c) => {
+          c.style.border = 'none';
+          if (xp.r === 0) c.style.borderTop = line;
+          if (xp.r + (c.rowSpan || 1) - 1 >= last) c.style.borderBottom = line;
+          if (xp.c === 0) c.style.borderLeft = line;
+          if (xp.c + (c.colSpan || 1) >= g.width) c.style.borderRight = line;
+        });
+        break;
+      }
+      case 'alignLeft':
+        table.style.marginLeft = '';
+        table.style.marginRight = '';
+        break;
+      case 'alignCenter':
+        table.style.marginLeft = 'auto';
+        table.style.marginRight = 'auto';
+        break;
+      case 'alignRight':
+        table.style.marginLeft = 'auto';
+        table.style.marginRight = '0px';
+        break;
+      case 'fullWidth':
+        table.style.width = '100%';
+        break;
+      case 'autoWidth':
+        table.style.width = 'auto';
+        $$('td,th', table).forEach((c) => { if (c.closest('table') === table) c.style.width = ''; });
+        break;
+      default:
+        return;
+    }
+    markDirty();
+    updateTableTab();
+  }
+  function updateTableTab() {
+    const show = !!currentCell();
+    const tab = $('#tableTab');
+    if (tab.hidden !== !show) tab.hidden = !show;
+    if (!show && tab.classList.contains('active')) showTab('home');
+  }
+  $$('[data-tcmd]').forEach((b) => b.addEventListener('click', () => tableCmd(b.dataset.tcmd)));
+  $('#cellShade').addEventListener('change', () => {
+    $('#cellShadeBar').style.background = $('#cellShade').value;
+    tableCmd('shade');
+  });
+  $('#cellShadeBar').style.background = $('#cellShade').value;
+
   /* ================= Layout ================= */
   function applyPage() {
     const [w, h] = PAGE_SIZES[state.page.size];
@@ -1423,18 +1926,31 @@ ${rows}
   workspace.addEventListener('scroll', scheduleStats);
 
   /* ================= Find & replace ================= */
+  // Our own search over the document text (the browser's built-in find doesn't work here).
+  // Matches are highlighted with the CSS Highlight API so they stay visible while typing in the find box.
   const findbar = $('#findbar');
+  const canHighlight = typeof Highlight === 'function' && window.CSS && CSS.highlights;
   function openFind(withReplace) {
+    captureSel();
+    state.findRange = null;
     findbar.hidden = false;
     findbar.classList.toggle('find-only', !withReplace);
     const t = window.getSelection().toString();
-    if (t && t.length < 100) $('#findInput').value = t;
+    if (t && t.length < 100 && !t.includes('\n')) $('#findInput').value = t;
     $('#findInput').focus();
     $('#findInput').select();
     countMatches();
   }
+  function clearFindHighlights() {
+    if (canHighlight) {
+      CSS.highlights.delete('find-all');
+      CSS.highlights.delete('find-current');
+    }
+    state.findRange = null;
+  }
   function closeFind() {
     findbar.hidden = true;
+    clearFindHighlights();
     restoreSelection();
   }
   function textNodes() {
@@ -1443,44 +1959,120 @@ ${rows}
     while (w.nextNode()) out.push(w.currentNode);
     return out;
   }
+  function textIndex() {
+    const map = [];
+    let text = '';
+    for (const n of textNodes()) {
+      map.push([n, text.length]);
+      text += n.nodeValue;
+    }
+    return { text, map };
+  }
+  function locate(map, pos, isEnd) {
+    for (const [n, s] of map) {
+      const e = s + n.nodeValue.length;
+      if (isEnd ? pos > s && pos <= e : pos >= s && pos < e) return [n, pos - s];
+    }
+    const last = map[map.length - 1];
+    return last ? [last[0], last[0].nodeValue.length] : [editor, 0];
+  }
+  function rangeFromOffsets(map, start, end) {
+    const [sn, so] = locate(map, start, false);
+    const [en, eo] = locate(map, end, true);
+    const r = document.createRange();
+    r.setStart(sn, so);
+    r.setEnd(en, eo);
+    return r;
+  }
+  function offsetOf(node, off) {
+    const r = document.createRange();
+    r.setStart(editor, 0);
+    try { r.setEnd(node, off); } catch (_) { return 0; }
+    return r.toString().length;
+  }
+  function allMatches(q, hay) {
+    const out = [];
+    if (!q) return out;
+    const needle = q.toLowerCase();
+    let i = hay.indexOf(needle);
+    while (i !== -1 && out.length < 5000) {
+      out.push(i);
+      i = hay.indexOf(needle, i + needle.length);
+    }
+    return out;
+  }
   function countMatches() {
     const q = $('#findInput').value;
+    clearFindHighlights();
     if (!q) { $('#findCount').textContent = ''; return 0; }
-    const text = editor.textContent.toLowerCase();
-    let n = 0;
-    let i = text.indexOf(q.toLowerCase());
-    while (i !== -1) { n++; i = text.indexOf(q.toLowerCase(), i + q.length); }
-    $('#findCount').textContent = n ? `${n} result${n === 1 ? '' : 's'}` : 'No results';
-    return n;
+    const { text, map } = textIndex();
+    const hits = allMatches(q, text.toLowerCase());
+    if (canHighlight && hits.length) {
+      CSS.highlights.set('find-all', new Highlight(...hits.slice(0, 1000).map((i) => rangeFromOffsets(map, i, i + q.length))));
+    }
+    $('#findCount').textContent = hits.length ? `${hits.length} result${hits.length === 1 ? '' : 's'}` : 'No results';
+    return hits.length;
   }
   function findNext(backwards = false) {
     const q = $('#findInput').value;
     if (!q) return false;
-    editor.focus();
-    let found = window.find(q, false, backwards, true, false, false, false);
-    if (found && !inEditor(window.getSelection().anchorNode)) found = window.find(q, false, backwards, true, false, false, false);
-    if (found) {
-      const sel = window.getSelection();
-      state.savedRange = sel.getRangeAt(0).cloneRange();
-      const rect = sel.getRangeAt(0).getBoundingClientRect();
-      const wr = workspace.getBoundingClientRect();
-      if (rect.top < wr.top || rect.bottom > wr.bottom) workspace.scrollTop += rect.top - wr.top - wr.height / 3;
+    const { text, map } = textIndex();
+    const hay = text.toLowerCase();
+    const hits = allMatches(q, hay);
+    if (!hits.length) {
+      $('#findCount').textContent = 'No results';
+      return false;
     }
-    return found;
+    // continue from the last match, or from the cursor
+    let pos = backwards ? hay.length : 0;
+    const ref = state.findRange || state.savedRange;
+    if (ref && inEditor(ref.startContainer)) {
+      pos = backwards ? offsetOf(ref.startContainer, ref.startOffset) : offsetOf(ref.endContainer, ref.endOffset);
+    }
+    let k = backwards ? hits.map((i) => i < pos).lastIndexOf(true) : hits.findIndex((i) => i >= pos);
+    if (k === -1) k = backwards ? hits.length - 1 : 0; // wrap around
+    const r = rangeFromOffsets(map, hits[k], hits[k] + q.length);
+    state.findRange = r;
+    state.savedRange = r.cloneRange();
+    if (canHighlight) CSS.highlights.set('find-current', new Highlight(r));
+    // if the find box doesn't have focus, select the match in the document
+    if (!findbar.contains(document.activeElement)) {
+      const host = (r.startContainer.parentElement || editor).closest('[contenteditable="true"]') || editor;
+      host.focus({ preventScroll: true });
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r.cloneRange());
+    }
+    const rect = r.getBoundingClientRect();
+    const wr = workspace.getBoundingClientRect();
+    if (rect.top < wr.top + 20 || rect.bottom > wr.bottom - 20) workspace.scrollTop += rect.top - wr.top - wr.height / 3;
+    $('#findCount').textContent = `${k + 1} of ${hits.length}`;
+    return true;
   }
   function replaceOne() {
     const q = $('#findInput').value;
-    const sel = window.getSelection();
-    if (sel.toString().toLowerCase() === q.toLowerCase() && inEditor(sel.anchorNode)) {
+    const r = state.findRange;
+    const back = document.activeElement;
+    if (r && r.toString().toLowerCase() === q.toLowerCase() && inEditor(r.startContainer)) {
+      flushHistory();
+      const host = (r.startContainer.parentElement || editor).closest('[contenteditable="true"]') || editor;
+      host.focus({ preventScroll: true });
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
       document.execCommand('insertText', false, $('#replaceInput').value);
+      state.savedRange = sel.getRangeAt(0).cloneRange();
+      state.findRange = state.savedRange;
       markDirty();
     }
-    findNext();
+    if (back && findbar.contains(back)) back.focus();
     countMatches();
+    findNext();
   }
   function replaceAll() {
     const q = $('#findInput').value;
     if (!q) return;
+    flushHistory();
     const rep = $('#replaceInput').value;
     const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
     let n = 0;
@@ -1490,11 +2082,18 @@ ${rows}
       if (nv !== v) t.nodeValue = nv;
     });
     if (n) markDirty();
+    countMatches();
     $('#findCount').textContent = `Replaced ${n}`;
   }
-  $('#findInput').addEventListener('input', countMatches);
+  let findTimer;
+  editor.addEventListener('input', () => {
+    if (findbar.hidden) return;
+    clearTimeout(findTimer);
+    findTimer = setTimeout(countMatches, 300);
+  });
+  $('#findInput').addEventListener('input', () => { state.findRange = null; countMatches(); });
   $('#findInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); findNext(e.shiftKey); $('#findInput').focus(); }
+    if (e.key === 'Enter') { e.preventDefault(); findNext(e.shiftKey); }
   });
   $('#replaceInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); replaceOne(); }
@@ -1563,6 +2162,7 @@ ${rows}
       ['Ctrl+Shift+L', 'Bullet list'], ['Ctrl+Alt+1 / 2 / 3', 'Heading 1 / 2 / 3'], ['Ctrl+Shift+N', 'Normal style'],
       ['Ctrl+K', 'Insert link (Ctrl+Click to open)'], ['Ctrl+Enter', 'Page break'], ['Alt+Shift+D', 'Insert date'],
       ['Tab / Shift+Tab', 'Tab, list level, next table cell'], ['Delete', 'Delete selected picture or shape'],
+      ['Right-click in a table', 'Insert / delete rows and columns, merge cells'],
       ['Ctrl+Shift+F / P', 'Jump to font / size box'], ['Ctrl+Mouse wheel', 'Zoom'],
     ];
     modal('<h3 style="margin-top:0">Keyboard Shortcuts</h3><table>' + rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('') + '</table>', { cancel: null });
@@ -1576,6 +2176,21 @@ ${rows}
     const code = e.code;
     let handled = true;
 
+    const inField = e.target.closest && e.target.closest('input,select,textarea');
+    if (ctrl && !e.altKey && (k === 'z' || k === 'y') && !inField) {
+      e.preventDefault();
+      if (k === 'y' || e.shiftKey) redo(); else undo();
+      return;
+    }
+    if (e.key === 'Enter' && !ctrl && inEditor(e.target)) flushHistory();
+    // Typing or moving the cursor elsewhere ends a picture/shape/box selection,
+    // so Backspace then deletes text instead of the object.
+    if (state.selectedObj && !inField && !ctrl && !e.altKey) {
+      const sel = window.getSelection();
+      const inside = sel.rangeCount && state.selectedObj.contains(sel.anchorNode);
+      const moving = e.key.length === 1 || e.key === 'Enter' || /^(Arrow|Home|End|Page)/.test(e.key);
+      if (moving && !inside) selectObj(null);
+    }
     if (e.key === 'Escape') {
       if (!findbar.hidden) closeFind();
       else if (state.painter) formatPainter();
@@ -1741,6 +2356,7 @@ ${rows}
     selectObj(null);
     updateTitle();
     updateStats();
+    localizeImages(false);
     workspace.scrollTop = 0;
     editor.focus();
     const r = document.createRange();
@@ -1748,6 +2364,8 @@ ${rows}
     r.collapse(true);
     window.getSelection().removeAllRanges();
     window.getSelection().addRange(r);
+    resetHistory();
+    updateTableTab();
   }
   async function newDoc() {
     if (!(await confirmDiscard())) return;
@@ -1939,8 +2557,21 @@ ${rows}
     return m ? '#' + m.slice(0, 3).map((n) => (+n).toString(16).padStart(2, '0')).join('') : '#000000';
   }
 
+  // Pictures pasted from web pages point at the internet; download and embed them,
+  // so they show up (the app blocks remote images) and save into the document.
+  async function localizeImages(dirty = true) {
+    const imgs = $$('img', editor).filter((i) => /^https?:/i.test(i.getAttribute('src') || ''));
+    for (const img of imgs) {
+      const data = api.fetchImage ? await api.fetchImage(img.getAttribute('src')) : null;
+      if (data) img.setAttribute('src', data);
+      else img.remove();
+    }
+    if (imgs.length && dirty) markDirty();
+  }
   // Paste images from clipboard as embedded pictures.
   editor.addEventListener('paste', (e) => {
+    flushHistory();
+    setTimeout(() => localizeImages(), 0);
     const items = e.clipboardData && e.clipboardData.items;
     if (!items) return;
     for (const it of items) {
@@ -1960,10 +2591,46 @@ ${rows}
     if (!f || !f.type.startsWith('image/')) return;
     e.preventDefault();
     const pos = document.caretRangeFromPoint(e.clientX, e.clientY);
-    if (pos) state.savedRange = pos;
+    if (pos && inEditor(pos.startContainer)) {
+      // insert where the picture was dropped, not at the old cursor
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(pos);
+      state.savedRange = pos.cloneRange();
+    }
     const fr = new FileReader();
     fr.onload = () => exec('insertHTML', `<img src="${fr.result}" style="width:${Math.min(480, editor.clientWidth)}px">`);
     fr.readAsDataURL(f);
+  });
+
+  // Drop a document file anywhere on the window to open it.
+  const DOC_FILE = /\.(docx|docm|dotx|dotm|doc|dot|rtf|odt|ott|wpd|wps|html?|md|markdown|txt)$/i;
+  document.addEventListener('dragover', (e) => {
+    if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+  });
+  document.addEventListener('drop', async (e) => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f || f.type.startsWith('image/') || e.defaultPrevented) return;
+    e.preventDefault();
+    if (!DOC_FILE.test(f.name) || !api.openPath || !api.pathForFile) return;
+    if (!(await confirmDiscard())) return;
+    const r = await api.openPath(api.pathForFile(f));
+    if (r) await loadResult(r);
+  });
+
+  // Right-click: tell the main process what was clicked, so the menu can offer table/object actions.
+  editor.addEventListener('contextmenu', (e) => {
+    const cell = e.target.closest && e.target.closest('td,th');
+    if (cell && !cell.contains(window.getSelection().anchorNode)) {
+      const r = document.caretRangeFromPoint(e.clientX, e.clientY);
+      const sel = window.getSelection();
+      if (r && cell.contains(r.startContainer)) {
+        sel.removeAllRanges();
+        sel.addRange(r);
+        state.savedRange = r.cloneRange();
+      } else caretIn(cell);
+    }
+    if (api.contextInfo) api.contextInfo({ table: !!(cell && inEditor(cell)), object: !!state.selectedObj });
   });
 
   /* ================= Start ================= */
@@ -1972,4 +2639,5 @@ ${rows}
   updateTitle();
   updateStats();
   editor.focus();
+  resetHistory();
 })();

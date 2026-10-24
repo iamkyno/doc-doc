@@ -21,12 +21,17 @@
 
 <header id="ribbon">
   <nav id="tabs">
+    <span class="qa">
+      <button data-cmd="undo" id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
+      <button data-cmd="redo" id="redoBtn" title="Redo (Ctrl+Y)">↷</button>
+    </span>
     <button class="tab file-tab" data-tab="file">File</button>
     <button class="tab active" data-tab="home">Home</button>
     <button class="tab" data-tab="insert">Insert</button>
     <button class="tab" data-tab="layout">Layout</button>
     <button class="tab" data-tab="view">View</button>
     <button class="tab context" data-tab="format" id="formatTab" hidden>Shape Format</button>
+    <button class="tab context" data-tab="table" id="tableTab" hidden>Table Layout</button>
     <span class="spacer"></span>
     <span id="docname">Document1</span>
   </nav>
@@ -270,6 +275,60 @@
         <button data-obj="delete" title="Delete (Del)">🗑 Delete</button>
       </div>
     </div><label>Arrange</label></div>
+  </section>
+
+  <!-- TABLE LAYOUT (shown while the cursor is in a table) -->
+  <section class="panel" data-panel="table">
+    <div class="group"><div class="col">
+      <div class="row">
+        <button data-tcmd="rowAbove" title="Insert a row above">⬆ Row Above</button>
+        <button data-tcmd="rowBelow" title="Insert a row below">⬇ Row Below</button>
+      </div>
+      <div class="row">
+        <button data-tcmd="colLeft" title="Insert a column to the left">⬅ Column Left</button>
+        <button data-tcmd="colRight" title="Insert a column to the right">➡ Column Right</button>
+      </div>
+    </div><label>Rows &amp; Columns</label></div>
+
+    <div class="group"><div class="col">
+      <button data-tcmd="delRow" title="Delete this row">✕ Delete Row</button>
+      <button data-tcmd="delCol" title="Delete this column">✕ Delete Column</button>
+      <button data-tcmd="delTable" title="Delete the whole table">🗑 Delete Table</button>
+    </div><label>Delete</label></div>
+
+    <div class="group"><div class="col">
+      <button data-tcmd="merge" title="Select several cells, then merge them into one">⊞ Merge Cells</button>
+      <button data-tcmd="split" title="Undo a merge: split this cell back into single cells">⊟ Split Cell</button>
+    </div><label>Merge</label></div>
+
+    <div class="group"><div class="col">
+      <span class="color-pick" title="Cell shading">
+        <button data-tcmd="shade">▧ Shading<span class="bar" id="cellShadeBar"></span></button>
+        <input type="color" id="cellShade" value="#d9d9d9">
+      </span>
+      <button data-tcmd="noShade" title="Remove cell shading">⊘ No Shading</button>
+      <div class="row">
+        <button data-tcmd="vTop" title="Text at top of cell">⤒</button>
+        <button data-tcmd="vMiddle" title="Text in middle of cell">↕</button>
+        <button data-tcmd="vBottom" title="Text at bottom of cell">⤓</button>
+      </div>
+    </div><label>Cells</label></div>
+
+    <div class="group"><div class="col">
+      <button data-tcmd="bordersAll" title="Border on every cell">▦ All Borders</button>
+      <button data-tcmd="bordersOutside" title="Border only around the outside">▢ Outside Only</button>
+      <button data-tcmd="bordersNone" title="No borders">⬚ No Borders</button>
+    </div><label>Borders</label></div>
+
+    <div class="group"><div class="col">
+      <div class="row">
+        <button data-tcmd="alignLeft" title="Table on the left">◧</button>
+        <button data-tcmd="alignCenter" title="Table centred">◫</button>
+        <button data-tcmd="alignRight" title="Table on the right">◨</button>
+      </div>
+      <button data-tcmd="fullWidth" title="Stretch the table across the page">↔ Full Width</button>
+      <button data-tcmd="autoWidth" title="Shrink the table to fit its contents">⇤⇥ Fit Contents</button>
+    </div><label>Table</label></div>
   </section>
 
   <!-- VIEW -->

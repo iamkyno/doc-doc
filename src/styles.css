@@ -33,7 +33,9 @@ body {
 #tabs .spacer { flex: 1; }
 #docname { color: #fff; align-self: center; padding-right: 14px; opacity: .9; }
 
-.panel { display: none; padding: 4px 6px 0; min-height: 96px; align-items: stretch; overflow: visible; position: relative; z-index: 5; }
+.panel { display: none; padding: 4px 6px 0; min-height: 96px; align-items: stretch; position: relative; z-index: 5;
+  /* scrolls sideways on narrow windows; menus are position:fixed so they are not clipped */
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 .panel.active { display: flex; }
 .group {
   display: flex; flex-direction: column; justify-content: space-between;
@@ -61,7 +63,7 @@ select, input[type=range] { font: inherit; height: 24px; border: 1px solid #c4c4
 .fontbox input { flex: 1; min-width: 0; border: 0; outline: 0; font: inherit; padding: 0 6px; background: transparent; }
 .panel .fontbox .fb-arrow { min-width: 18px; width: 18px; height: 22px; padding: 0; border: 0; border-left: 1px solid #e0e0e0; border-radius: 0; }
 .font-list {
-  position: absolute; top: calc(100% + 2px); left: -1px; width: 300px; max-height: 420px; overflow-y: auto; z-index: 60;
+  position: fixed; width: 300px; max-height: 420px; overflow-y: auto; z-index: 60;
   background: #fff; border: 1px solid #bbb; box-shadow: 0 6px 18px rgba(0,0,0,.2); padding: 4px 0; user-select: none;
 }
 .font-list[hidden] { display: none; }
@@ -84,7 +86,7 @@ input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4
 
 .dropdown { position: relative; }
 .dropdown .menu {
-  display: none; position: absolute; top: 100%; left: 0; z-index: 50; background: #fff;
+  display: none; position: fixed; z-index: 80; background: #fff;
   border: 1px solid #bbb; box-shadow: 0 4px 14px rgba(0,0,0,.18); padding: 6px;
 }
 .dropdown.open .menu { display: block; }
@@ -147,7 +149,6 @@ input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4
   content: "Page Break"; position: absolute; left: 50%; top: -8px; transform: translateX(-50%);
   background: #fff; color: #889; font: 10px "Segoe UI"; padding: 0 6px;
 }
-#editor .find-hit { background: #ffe58a; }
 
 /* shapes & text boxes */
 #editor .shape { display: inline-block; position: relative; vertical-align: middle; line-height: 0; }
@@ -232,3 +233,16 @@ input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4
 #editor .para-box > :last-child { margin-bottom: 0; }
 #editor table.exam td { min-width: 0; }
 #editor .tb-body { outline: none; min-height: 1em; cursor: text; }
+
+/* quick access Undo / Redo */
+#tabs .qa { display: flex; align-items: center; gap: 2px; padding: 0 6px 0 2px; }
+#tabs .qa button { background: none; border: 0; color: #fff; font-size: 17px; width: 26px; height: 26px; border-radius: 3px; cursor: pointer; line-height: 1; }
+#tabs .qa button:hover { background: rgba(255,255,255,.18); }
+#tabs .qa button:disabled { opacity: .4; cursor: default; background: none; }
+.tab.context[data-tab="table"] { color: #b6f0c0; }
+.tab.context[data-tab="table"].active { color: #1d6b2a; border-top-color: #3ca04f; }
+/* objects sent behind text */
+#editor { isolation: isolate; }
+/* find matches */
+::highlight(find-all) { background-color: #fff1a8; }
+::highlight(find-current) { background-color: #ff9632; color: #000; }

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -235,8 +235,9 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo', accelerator: 'CmdOrCtrl+Z' },
-        { role: 'redo', accelerator: 'CmdOrCtrl+Y' },
+        // the page handles Ctrl+Z / Ctrl+Y itself (its own history covers every change)
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', registerAccelerator: false, click: () => send('undo') },
+        { label: 'Redo', accelerator: 'CmdOrCtrl+Y', registerAccelerator: false, click: () => send('redo') },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
@@ -293,11 +294,27 @@ function createWindow() {
 
   // Spellcheck suggestions on right click.
   win.webContents.on('context-menu', (_e, params) => {
+    const ctx = lastContext;
+    lastContext = {};
     const items = params.dictionarySuggestions.map((s) => ({
       label: s,
       click: () => win.webContents.replaceMisspelling(s),
     }));
     if (items.length) items.push({ type: 'separator' });
+    if (ctx.table) {
+      const t = (label, cmd) => ({ label, click: () => send('table:' + cmd) });
+      items.push(
+        { label: 'Insert', submenu: [t('Row Above', 'rowAbove'), t('Row Below', 'rowBelow'), t('Column Left', 'colLeft'), t('Column Right', 'colRight')] },
+        { label: 'Delete', submenu: [t('Row', 'delRow'), t('Column', 'delCol'), t('Whole Table', 'delTable')] },
+        t('Merge Cells', 'merge'),
+        t('Split Cell', 'split'),
+        { type: 'separator' },
+      );
+    }
+    if (ctx.object) {
+      const o = (label, cmd) => ({ label, click: () => send('obj:' + cmd) });
+      items.push(o('Bring to Front', 'front'), o('Send Behind Text', 'back'), o('Delete', 'delete'), { type: 'separator' });
+    }
     items.push({ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { type: 'separator' }, { role: 'selectAll' });
     Menu.buildFromTemplate(items).popup();
   });
@@ -330,6 +347,40 @@ function createWindow() {
     }
   });
 }
+
+// What was right-clicked (sent by the page just before the menu opens).
+let lastContext = {};
+ipcMain.on('context-info', (e, info) => {
+  lastContext = info || {};
+  e.returnValue = true;
+});
+
+// Open a file dropped onto the window.
+ipcMain.handle('open-path', async (_e, filePath) => {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  try {
+    return await readDocument(filePath);
+  } catch (err) {
+    dialog.showErrorBox('Could not open file', err.friendly ? err.message : `${path.basename(filePath)} could not be opened.\n\n${err.message || err}`);
+    return null;
+  }
+});
+
+// Download a picture pasted from a web page and return it embedded (data URL).
+ipcMain.handle('fetch-image', async (_e, url) => {
+  if (!/^https?:\/\//i.test(url || '')) return null;
+  try {
+    const res = await net.fetch(url);
+    if (!res.ok) return null;
+    const type = (res.headers.get('content-type') || '').split(';')[0].trim();
+    if (!type.startsWith('image/')) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > 15 * 1024 * 1024) return null;
+    return `data:${type};base64,${buf.toString('base64')}`;
+  } catch (_) {
+    return null;
+  }
+});
 
 ipcMain.on('set-title', (_e, t) => win && win.setTitle(t));
 ipcMain.on('set-dirty', (_e, d) => { dirty = !!d; });

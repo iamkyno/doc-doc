@@ -11,7 +11,11 @@ A simple, friendly document editor for Windows. Word-style ribbon, the usual key
 ## What it does
 
 - **Home:** cut/copy/paste, format painter, fonts and sizes, bold/italic/underline/strikethrough, sub/superscript, change case, text colour, highlight, bullets, numbering, indent, alignment, line spacing, paragraph shading, styles (Normal, Headings, Title, Quote), find & replace
-- **Insert:** page break, tables, pictures (also paste or drag in), 18 shapes, text boxes, links, horizontal line, date, symbols
+- **Insert:** page break, tables, pictures (also paste or drag in; pictures pasted from web pages are downloaded and embedded), 18 shapes, text boxes, links, horizontal line, date, symbols
+- **Table Layout tab** (appears when the cursor is in a table, also on right-click): insert rows/columns, delete row/column/table, merge and split cells, cell shading, text position in cells, all/outside/no borders, table alignment and width
+- **Undo / Redo** for every change (typing, formatting, tables, boxes, shape formatting), with buttons at the top left
+- **Find & Replace** highlights every match and shows "2 of 5"
+- **Open by drag and drop:** drop a document anywhere on the window
 - **Shape Format tab** (appears when a text box, shape or picture is selected): fill colour, no fill, transparency, border colour/weight/style (solid, dashed, dotted, double), rounded corners, shadow, rotation, inner margin, text position, exact size in cm, wrapping, front/back, delete
 - **Exam paper boxes** (Insert → Shapes): mark box, mark out of (side by side, stacked, or circle), mark allocation (5), mark circle, total box, tick boxes (click to tick), answer lines, dotted lines, answer box, examiner's-use table, candidate details with number boxes, instructions box. Mark boxes stay beside their question as you edit
 - **Paragraph borders:** bottom, top, box around paragraphs
