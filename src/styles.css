@@ -33,7 +33,7 @@ body {
 #tabs .spacer { flex: 1; }
 #docname { color: #fff; align-self: center; padding-right: 14px; opacity: .9; }
 
-.panel { display: none; padding: 4px 6px 0; min-height: 96px; align-items: stretch; overflow-x: auto; }
+.panel { display: none; padding: 4px 6px 0; min-height: 96px; align-items: stretch; overflow: visible; position: relative; z-index: 5; }
 .panel.active { display: flex; }
 .group {
   display: flex; flex-direction: column; justify-content: space-between;
@@ -55,7 +55,21 @@ label.inline { display: flex; align-items: center; gap: 6px; justify-content: sp
 .panel button.big { flex-direction: column; height: 66px; min-width: 52px; padding: 2px 6px; line-height: 1.1; }
 .big .ico { font-size: 24px; line-height: 30px; }
 select, input[type=range] { font: inherit; height: 24px; border: 1px solid #c4c4c4; border-radius: 2px; background: #fff; }
-#fontName { width: 140px; }
+/* font picker */
+.fontbox { position: relative; display: inline-flex; width: 170px; height: 24px; border: 1px solid #c4c4c4; border-radius: 2px; background: #fff; }
+.fontbox:focus-within { border-color: var(--accent); }
+.fontbox input { flex: 1; min-width: 0; border: 0; outline: 0; font: inherit; padding: 0 6px; background: transparent; }
+.panel .fontbox .fb-arrow { min-width: 18px; width: 18px; height: 22px; padding: 0; border: 0; border-left: 1px solid #e0e0e0; border-radius: 0; }
+.font-list {
+  position: absolute; top: calc(100% + 2px); left: -1px; width: 300px; max-height: 420px; overflow-y: auto; z-index: 60;
+  background: #fff; border: 1px solid #bbb; box-shadow: 0 6px 18px rgba(0,0,0,.2); padding: 4px 0; user-select: none;
+}
+.font-list[hidden] { display: none; }
+.font-list .fl-head { padding: 6px 10px 3px; font: 600 11px "Segoe UI", sans-serif; color: #2b579a; background: #f3f5f9; position: sticky; top: -4px; z-index: 1; }
+.font-list .fi { padding: 4px 12px; font-size: 15px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 30px; }
+.font-list .fi.hot { background: var(--hover); }
+.font-list .fi.current { font-weight: 600; }
+.font-list .fl-empty { padding: 8px 12px; color: #777; }
 #fontSize { width: 52px; }
 input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4c4c4; background: #fff; cursor: pointer; }
 

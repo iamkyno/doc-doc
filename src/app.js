@@ -82,7 +82,8 @@
 
   /* ================= Dirty / title ================= */
   function docName() {
-    return state.filePath ? state.filePath.split(/[\\/]/).pop() : 'Document1';
+    const p = state.filePath || state.suggestedName;
+    return p ? p.split(/[\\/]/).pop() : 'Document1';
   }
   function updateTitle() {
     const name = docName();
@@ -309,7 +310,153 @@
     else next = [...FONT_STEPS].reverse().find((s) => s < cur) || Math.max(1, cur - 1);
     applyFontSize(next);
   }
-  $('#fontName').addEventListener('change', (e) => exec('fontName', e.target.value));
+  /* ---------- Font picker ---------- */
+  const fontInput = $('#fontName');
+  const fontList = $('#fontList');
+  const fonts = {
+    bundled: (window.BUNDLED_FONTS || []).map((f) => f.family).sort((a, b) => a.localeCompare(b)),
+    installed: [],
+    recent: [],
+    loaded: false,
+  };
+  try { fonts.recent = JSON.parse(localStorage.getItem('docdoc-recent-fonts') || '[]'); } catch (_) { /* no storage */ }
+  let fontItems = [];
+  let fontHot = -1;
+  let fontBefore = '';
+
+  async function loadInstalledFonts() {
+    const set = new Set();
+    try {
+      if (window.queryLocalFonts) (await window.queryLocalFonts()).forEach((f) => set.add(f.family));
+    } catch (_) { /* not allowed here; use the system list */ }
+    try {
+      if (api.listFonts) (await api.listFonts()).forEach((f) => set.add(f));
+    } catch (_) { /* ignore */ }
+    fonts.installed = [...set].filter((f) => f && !f.startsWith('.')).sort((a, b) => a.localeCompare(b));
+    fonts.loaded = true;
+    if (!fontList.hidden) renderFontList(fontInput.value === fontBefore ? '' : fontInput.value);
+  }
+  setTimeout(loadInstalledFonts, 300);
+
+  function fontRow(name) {
+    const d = document.createElement('div');
+    d.className = 'fi';
+    d.textContent = name;
+    d.title = name;
+    d.style.fontFamily = `${JSON.stringify(name)}, "Segoe UI", sans-serif`;
+    if (name.toLowerCase() === fontBefore.toLowerCase()) d.classList.add('current');
+    fontItems.push(d);
+    return d;
+  }
+  function renderFontList(filter = '') {
+    const q = filter.trim().toLowerCase();
+    const pick = (arr) => {
+      const m = arr.filter((f) => !q || f.toLowerCase().includes(q));
+      return q ? [...m.filter((f) => f.toLowerCase().startsWith(q)), ...m.filter((f) => !f.toLowerCase().startsWith(q))] : m;
+    };
+    const bundledSet = new Set(fonts.bundled.map((f) => f.toLowerCase()));
+    const sections = [
+      ['Recently used', fonts.recent],
+      ['DocDoc fonts (built in)', fonts.bundled],
+      ['Installed on this PC', fonts.installed.filter((f) => !bundledSet.has(f.toLowerCase()))],
+    ];
+    fontList.innerHTML = '';
+    fontItems = [];
+    for (const [title, arr] of sections) {
+      const list = pick(arr);
+      if (!list.length) continue;
+      const h = document.createElement('div');
+      h.className = 'fl-head';
+      h.textContent = title;
+      fontList.appendChild(h);
+      list.forEach((f) => fontList.appendChild(fontRow(f)));
+    }
+    if (!fonts.loaded) {
+      const d = document.createElement('div');
+      d.className = 'fl-empty';
+      d.textContent = 'Finding fonts on this PC…';
+      fontList.appendChild(d);
+    }
+    if (!fontItems.length && q) {
+      const d = document.createElement('div');
+      d.className = 'fl-empty';
+      d.textContent = `No match. Press Enter to use "${filter.trim()}".`;
+      fontList.appendChild(d);
+    }
+    fontHot = q ? (fontItems.length ? 0 : -1) : fontItems.findIndex((d) => d.classList.contains('current'));
+    markFontHot();
+  }
+  function markFontHot() {
+    fontItems.forEach((d, i) => d.classList.toggle('hot', i === fontHot));
+    if (fontItems[fontHot]) fontItems[fontHot].scrollIntoView({ block: 'nearest' });
+  }
+  function openFontList() {
+    fontList.hidden = false;
+    renderFontList();
+  }
+  function closeFontList() {
+    fontList.hidden = true;
+  }
+  function applyFont(name) {
+    name = (name || '').trim();
+    closeFontList();
+    if (!name) { fontInput.value = fontBefore; return; }
+    fontInput.value = name;
+    fontBefore = name;
+    exec('fontName', name);
+    fonts.recent = [name, ...fonts.recent.filter((f) => f.toLowerCase() !== name.toLowerCase())].slice(0, 6);
+    try { localStorage.setItem('docdoc-recent-fonts', JSON.stringify(fonts.recent)); } catch (_) { /* ignore */ }
+    editor.focus({ preventScroll: true });
+  }
+  fontInput.addEventListener('focus', () => {
+    fontBefore = fontInput.value;
+    fontInput.select();
+    openFontList();
+  });
+  fontInput.addEventListener('input', () => {
+    fontList.hidden = false;
+    renderFontList(fontInput.value);
+  });
+  fontInput.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (fontList.hidden) openFontList();
+      fontHot = Math.max(0, Math.min(fontItems.length - 1, fontHot + (e.key === 'ArrowDown' ? 1 : -1)));
+      markFontHot();
+      if (fontItems[fontHot]) fontInput.value = fontItems[fontHot].textContent;
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const typed = fontInput.value.trim();
+      const hotName = fontItems[fontHot] && fontItems[fontHot].textContent;
+      // exact typed name wins; otherwise take the highlighted suggestion
+      const exact = fontItems.find((d) => d.textContent.toLowerCase() === typed.toLowerCase());
+      applyFont(exact ? exact.textContent : hotName || typed);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      fontInput.value = fontBefore;
+      closeFontList();
+      restoreSelection();
+    } else if (e.key === 'Tab') {
+      closeFontList();
+    }
+  });
+  fontInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (document.activeElement === fontInput) return;
+      closeFontList();
+      fontInput.value = fontBefore;
+    }, 150);
+  });
+  fontList.addEventListener('mousedown', (e) => e.preventDefault());
+  fontList.addEventListener('click', (e) => {
+    const it = e.target.closest('.fi');
+    if (it) applyFont(it.textContent);
+  });
+  $('#fontArrow').addEventListener('click', () => {
+    if (!fontList.hidden && document.activeElement === fontInput) { closeFontList(); return; }
+    fontInput.focus();
+  });
   $('#fontSize').addEventListener('change', (e) => applyFontSize(e.target.value));
 
   function changeCase() {
@@ -386,9 +533,7 @@
     const map = { left: 'justifyLeft', start: 'justifyLeft', center: 'justifyCenter', right: 'justifyRight', end: 'justifyRight', justify: 'justifyFull' };
     $$('[data-state^="justify"]').forEach((b) => b.classList.toggle('on', map[ta] === b.dataset.state));
     const fam = cs.fontFamily.split(',')[0].replace(/["']/g, '').trim();
-    const fn = $('#fontName');
-    if (![...fn.options].some((o) => o.value === fam)) fn.add(new Option(fam));
-    fn.value = fam;
+    if (document.activeElement !== fontInput) fontInput.value = fam;
     const pt = currentFontPt();
     const fs = $('#fontSize');
     const ptStr = String(pt);
@@ -1111,16 +1256,47 @@
     if (r === 'ok') return saveDoc(false);
     return r === 'extra';
   }
-  function loadHtml(html, filePath, pg) {
+  // Work out page size/orientation from saved or imported settings.
+  function resolvePage(pg) {
+    if (PAGE_SIZES[pg.size]) return { size: pg.size, landscape: !!pg.landscape };
+    if (pg.widthMm && pg.heightMm) {
+      const landscape = pg.widthMm > pg.heightMm + 1;
+      const short = Math.min(pg.widthMm, pg.heightMm);
+      const long = Math.max(pg.widthMm, pg.heightMm);
+      const known = Object.keys(PAGE_SIZES).find((k) => k !== 'Custom' && Math.abs(PAGE_SIZES[k][0] - short) < 2.5 && Math.abs(PAGE_SIZES[k][1] - long) < 2.5);
+      if (known) return { size: known, landscape };
+      PAGE_SIZES.Custom = [Math.round(short * 10) / 10, Math.round(long * 10) / 10];
+      const sel = $('#pageSize');
+      let opt = sel.querySelector('option[value="Custom"]');
+      if (!opt) { opt = new Option('', 'Custom'); sel.add(opt); }
+      opt.textContent = `Custom (${(short / 10).toFixed(1)} × ${(long / 10).toFixed(1)} cm)`;
+      return { size: 'Custom', landscape };
+    }
+    return { size: 'A4', landscape: false };
+  }
+  function setMarginOption(mm) {
+    const sel = $('#margins');
+    const v = String(mm);
+    if (![...sel.options].some((o) => o.value === v)) {
+      $$('option.custom', sel).forEach((o) => o.remove());
+      const o = new Option(`Custom (${(mm / 10).toFixed(2)} cm)`, v);
+      o.className = 'custom';
+      sel.add(o);
+    }
+    sel.value = v;
+  }
+  function loadHtml(html, filePath, pg, suggestedName) {
     editor.innerHTML = html && html.trim() ? html : '<p><br></p>';
     // restore page layout saved with the document (or defaults)
     pg = pg || {};
-    state.page.size = PAGE_SIZES[pg.size] ? pg.size : 'A4';
-    state.page.landscape = !!pg.landscape;
+    const ps = resolvePage(pg);
+    state.page.size = ps.size;
+    state.page.landscape = ps.landscape;
     state.page.marginMm = pg.marginMm || 25.4;
+    state.suggestedName = suggestedName || null;
     $('#pageSize').value = state.page.size;
     $('#orientation').value = state.page.landscape ? 'landscape' : 'portrait';
-    $('#margins').value = String(state.page.marginMm);
+    setMarginOption(state.page.marginMm);
     $('#columns').value = pg.columns || '1';
     editor.style.columnCount = pg.columns && pg.columns !== '1' ? pg.columns : '';
     $('#pageColor').value = pg.color || '#ffffff';
@@ -1149,9 +1325,30 @@
   async function openDoc() {
     if (!(await confirmDiscard())) return;
     const r = api.openFile && (await api.openFile());
-    if (r) loadHtml(r.html, r.filePath, r.page);
+    if (r) await loadResult(r);
   }
-  api.onOpenPath && api.onOpenPath((r) => r && loadHtml(r.html, r.filePath, r.page));
+  api.onOpenPath && api.onOpenPath((r) => r && loadResult(r));
+
+  // Show a document returned by the main process (HTML, or Word bytes to render).
+  async function loadResult(r) {
+    if (!r.docx) {
+      loadHtml(r.html, r.filePath, r.page, r.suggestedName);
+      return;
+    }
+    $('#saveState').textContent = 'Opening…';
+    document.body.style.cursor = 'progress';
+    try {
+      const res = await window.DocImport.importDocx(r.docx);
+      loadHtml(res.html, r.filePath, res.page, r.suggestedName);
+    } catch (err) {
+      console.error(err);
+      const html = api.docxBasic ? await api.docxBasic(r.docx) : '';
+      loadHtml(html, r.filePath, null, r.suggestedName);
+      $('#saveState').textContent = 'Opened in simple mode';
+    } finally {
+      document.body.style.cursor = '';
+    }
+  }
 
   // Turn shapes into PNG pictures so they survive in Word.
   function shapeToPng(el) {
@@ -1222,6 +1419,7 @@
     $('#saveState').textContent = 'Saving…';
     const result = await api.saveFile({
       filePath: state.filePath,
+      suggestedName: state.suggestedName,
       saveAs,
       html: isDocx ? await htmlForDocx() : clean.innerHTML,
       editorHtml: clean.innerHTML,
@@ -1232,6 +1430,7 @@
       },
     });
     if (!result) { updateTitle(); return false; }
+    state.suggestedName = null;
     state.filePath = result;
     state.dirty = false;
     updateTitle();

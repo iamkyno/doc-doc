@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; font-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'">
 <title>DocDoc</title>
+<link rel="stylesheet" href="fonts/fonts.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -58,11 +59,11 @@
     <div class="group">
       <div class="col">
         <div class="row">
-          <select id="fontName" title="Font (Ctrl+Shift+F)">
-            <option>Calibri</option><option>Arial</option><option>Times New Roman</option><option>Georgia</option>
-            <option>Verdana</option><option>Tahoma</option><option>Segoe UI</option><option>Cambria</option>
-            <option>Garamond</option><option>Courier New</option><option>Comic Sans MS</option><option>Trebuchet MS</option>
-          </select>
+          <div class="fontbox" id="fontBox" title="Font (Ctrl+Shift+F)">
+            <input id="fontName" spellcheck="false" autocomplete="off" value="Calibri" aria-label="Font">
+            <button type="button" class="fb-arrow" id="fontArrow" tabindex="-1">▾</button>
+            <div class="font-list" id="fontList" hidden></div>
+          </div>
           <select id="fontSize" title="Font Size (Ctrl+Shift+P)">
             <option>8</option><option>9</option><option>10</option><option selected>11</option><option>12</option>
             <option>14</option><option>16</option><option>18</option><option>20</option><option>24</option>
@@ -262,6 +263,10 @@
 
 <div id="modal" hidden><div class="box"><div id="modalBody"></div><div class="actions"><button id="modalOk">OK</button><button id="modalCancel">Cancel</button></div></div></div>
 
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/docx-preview.min.js"></script>
+<script src="fonts/bundled.js"></script>
+<script src="importer.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

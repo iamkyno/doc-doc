@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('api', {
   setDirty: (d) => ipcRenderer.send('set-dirty', d),
   onMenu: (cb) => ipcRenderer.on('menu', (_e, cmd) => cb(cmd)),
   edit: (cmd) => ipcRenderer.send('edit', cmd),
+  docxBasic: (bytes) => ipcRenderer.invoke('docx-basic', bytes),
+  listFonts: () => ipcRenderer.invoke('list-fonts'),
   closeNow: () => ipcRenderer.send('close-now'),
   onOpenPath: (cb) => ipcRenderer.on('open-path-result', (_e, r) => cb(r)),
 });

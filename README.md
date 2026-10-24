@@ -14,7 +14,9 @@ A simple, friendly document editor for Windows. Word-style ribbon, the usual key
 - **Insert:** page break, tables, pictures (also paste or drag in), 18 shapes, text boxes, links, horizontal line, date, symbols
 - **Layout:** margins, orientation, page size, columns, page colour, picture/shape wrapping, bring to front/back, fill and outline colours
 - **View:** zoom (or Ctrl + mouse wheel), spell check
-- **Files:** open `.docx`, `.html`, `.txt`; save as `.docx`, `.html`, `.txt`; export PDF; print
+- **Files:** open `.docx`, `.docm`, `.dotx`, `.html`, `.md`, `.txt` directly. Open `.doc`, `.rtf`, `.odt` when Microsoft Word or the free LibreOffice is installed (DocDoc uses it to convert). Save as `.docx`, `.html`, `.txt`; export PDF; print
+- **Existing Word documents** keep their fonts, sizes, colours, highlights, alignment, spacing, indents, headings, bullet/numbered lists, tables (borders and shading), pictures, page size and margins
+- **Fonts:** every font installed on your PC, plus 30 built-in free fonts (Roboto, Open Sans, Lato, Montserrat, Poppins, Inter, Merriweather, Playfair Display, Lora, EB Garamond, Dancing Script, Fira Code and more). Carlito and Caladea stand in for Calibri and Cambria on PCs without Office. Type in the font box to search
 
 Press **F1** in the app to see every keyboard shortcut.
 
@@ -24,6 +26,7 @@ Press **F1** in the app to see every keyboard shortcut.
 npm install
 npm start          # run the app
 npm run dist       # build the Windows installer (run on Windows)
+npm run vendor     # refresh bundled fonts and the .docx renderer in src/
 ```
 
 Every push to `master` builds the installer on GitHub Actions and attaches it to a release.

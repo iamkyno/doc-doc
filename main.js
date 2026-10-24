@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { execFile } = require('child_process');
 const crypto = require('crypto');
 
 // DocDoc stores an exact copy of the editor content inside each .docx it saves,
@@ -13,11 +15,17 @@ let win;
 let dirty = false;
 let forceClose = false;
 
+const WORD_EXT = ['docx', 'docm', 'dotx', 'dotm'];
+// Older or other formats, converted to .docx with Word or LibreOffice if installed.
+const CONVERT_EXT = ['doc', 'dot', 'rtf', 'odt', 'ott', 'wpd', 'wps', 'xml'];
 const FILTERS_OPEN = [
-  { name: 'Documents', extensions: ['docx', 'html', 'htm', 'txt'] },
-  { name: 'Word Document', extensions: ['docx'] },
+  { name: 'All Documents', extensions: [...WORD_EXT, ...CONVERT_EXT, 'html', 'htm', 'md', 'markdown', 'txt'] },
+  { name: 'Word Documents', extensions: [...WORD_EXT, 'doc', 'dot'] },
+  { name: 'Rich Text / OpenDocument', extensions: ['rtf', 'odt', 'ott'] },
   { name: 'Web Page', extensions: ['html', 'htm'] },
+  { name: 'Markdown', extensions: ['md', 'markdown'] },
   { name: 'Text', extensions: ['txt'] },
+  { name: 'All Files', extensions: ['*'] },
 ];
 const FILTERS_SAVE = [
   { name: 'Word Document (*.docx)', extensions: ['docx'] },
@@ -29,33 +37,142 @@ function escapeHtml(s) {
   return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 }
 
-async function readDocument(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  if (ext === '.docx') {
-    try {
-      const JSZip = require('jszip');
-      const zip = await JSZip.loadAsync(fs.readFileSync(filePath));
-      const part = zip.file(EMBED_PART);
-      const docXml = zip.file('word/document.xml');
-      if (part && docXml) {
-        const data = JSON.parse(await part.async('string'));
-        if (data.check === sha1(await docXml.async('nodebuffer'))) {
-          return { filePath, html: data.html, page: data.page };
-        }
-      }
-    } catch (_) { /* fall back to plain conversion */ }
-    const mammoth = require('mammoth');
-    const result = await mammoth.convertToHtml({ path: filePath });
-    return { filePath, html: result.value };
+function run(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: 180000, windowsHide: true, maxBuffer: 64 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
+      if (err) reject(new Error((stderr || err.message || '').toString().trim()));
+      else resolve(stdout.toString());
+    });
+  });
+}
+
+function findLibreOffice() {
+  const candidates = [];
+  if (process.platform === 'win32') {
+    for (const base of [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], 'C:\\Program Files', 'C:\\Program Files (x86)']) {
+      if (base) candidates.push(path.join(base, 'LibreOffice', 'program', 'soffice.exe'));
+    }
+  } else {
+    candidates.push('/usr/bin/soffice', '/usr/local/bin/soffice', '/Applications/LibreOffice.app/Contents/MacOS/soffice');
   }
-  const text = fs.readFileSync(filePath, 'utf8');
-  if (ext === '.html' || ext === '.htm') {
+  return candidates.find((c) => fs.existsSync(c));
+}
+
+// Convert any document Word or LibreOffice can read into .docx bytes.
+async function convertToDocx(filePath) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'docdoc-'));
+  const out = path.join(tmp, path.parse(filePath).name + '.docx');
+  const errors = [];
+  try {
+    if (process.platform === 'win32') {
+      // Microsoft Word, if installed (best results for .doc files)
+      const ps = [
+        "$ErrorActionPreference = 'Stop'",
+        '$w = New-Object -ComObject Word.Application',
+        '$w.Visible = $false',
+        '$w.DisplayAlerts = 0',
+        'try { $d = $w.Documents.Open($env:DD_IN, $false, $true, $false); $d.SaveAs2($env:DD_OUT, 16); $d.Close($false) } finally { $w.Quit() }',
+      ].join('; ');
+      try {
+        await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], {
+          env: { ...process.env, DD_IN: filePath, DD_OUT: out },
+        });
+        if (fs.existsSync(out)) return fs.readFileSync(out);
+      } catch (e) {
+        errors.push('Word: ' + e.message.split('\n')[0]);
+      }
+    }
+    const soffice = findLibreOffice();
+    if (soffice) {
+      try {
+        await run(soffice, ['--headless', '--norestore', `-env:UserInstallation=file:///${tmp.replace(/\\/g, '/')}/profile`,
+          '--convert-to', 'docx:MS Word 2007 XML', '--outdir', tmp, filePath]);
+        if (fs.existsSync(out)) return fs.readFileSync(out);
+      } catch (e) {
+        errors.push('LibreOffice: ' + e.message.split('\n')[0]);
+      }
+    }
+    const err = new Error(
+      `DocDoc needs Microsoft Word or the free LibreOffice (libreoffice.org) installed to open ${path.extname(filePath)} files. ` +
+      'Install either one, then try again. Or open the file in another program and save it as .docx.' +
+      (errors.length ? '\n\nDetails: ' + errors.join('; ') : '')
+    );
+    err.friendly = true;
+    throw err;
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+async function readDocument(filePath) {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  const base = path.parse(filePath).name;
+  // Saving must never overwrite templates, macro files or old formats with .docx content.
+  const asDocx = (bytes, keepPath) => ({
+    filePath: keepPath ? filePath : null,
+    suggestedName: keepPath ? null : path.join(path.dirname(filePath), base + '.docx'),
+    docx: bytes,
+  });
+
+  if (WORD_EXT.includes(ext)) {
+    const buf = fs.readFileSync(filePath);
+    if (ext === 'docx') {
+      try {
+        const JSZip = require('jszip');
+        const zip = await JSZip.loadAsync(buf);
+        const part = zip.file(EMBED_PART);
+        const docXml = zip.file('word/document.xml');
+        if (part && docXml) {
+          const data = JSON.parse(await part.async('string'));
+          if (data.check === sha1(await docXml.async('nodebuffer'))) {
+            return { filePath, html: data.html, page: data.page };
+          }
+        }
+      } catch (_) { /* not a DocDoc file; render it normally */ }
+    }
+    return asDocx(buf, ext === 'docx');
+  }
+  if (CONVERT_EXT.includes(ext)) {
+    return asDocx(await convertToDocx(filePath), false);
+  }
+  const text = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+  if (ext === 'html' || ext === 'htm') {
     const m = text.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     return { filePath, html: m ? m[1] : text };
+  }
+  if (ext === 'md' || ext === 'markdown') {
+    const { marked } = require('marked');
+    return { filePath: null, suggestedName: path.join(path.dirname(filePath), base + '.docx'), html: marked.parse(text) };
   }
   const html = text.split(/\r?\n/).map((l) => `<p>${escapeHtml(l) || '<br>'}</p>`).join('');
   return { filePath, html };
 }
+
+// Fallback reader if the high-fidelity renderer fails on a file.
+ipcMain.handle('docx-basic', async (_e, bytes) => {
+  const mammoth = require('mammoth');
+  const r = await mammoth.convertToHtml({ buffer: Buffer.from(bytes) });
+  return r.value;
+});
+
+// Every font family installed on this computer.
+let fontCache = null;
+ipcMain.handle('list-fonts', async () => {
+  if (fontCache) return fontCache;
+  let names = [];
+  try {
+    if (process.platform === 'win32') {
+      const out = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+        '[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Drawing; (New-Object System.Drawing.Text.InstalledFontCollection).Families | ForEach-Object { $_.Name }']);
+      names = out.split(/\r?\n/);
+    } else {
+      const out = await run('fc-list', [':', 'family']);
+      names = out.split('\n').map((l) => l.split(',')[0]);
+    }
+  } catch (_) { /* no list available */ }
+  fontCache = [...new Set(names.map((n) => n.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  return fontCache;
+});
 
 function send(cmd) {
   if (win) win.webContents.send('menu', cmd);
@@ -167,7 +284,7 @@ function createWindow() {
 
   // Open a file passed on the command line (double-clicking a .docx).
   win.webContents.once('did-finish-load', async () => {
-    const arg = process.argv.slice(1).find((a) => /\.(docx|html?|txt)$/i.test(a) && fs.existsSync(a));
+    const arg = process.argv.slice(1).find((a) => /\.(docx|docm|dotx|dotm|doc|dot|rtf|odt|ott|wpd|wps|html?|md|markdown|txt)$/i.test(a) && fs.existsSync(a));
     if (arg) {
       try {
         win.webContents.send('open-path-result', await readDocument(arg));
@@ -191,7 +308,7 @@ ipcMain.handle('open-file', async () => {
   try {
     return await readDocument(r.filePaths[0]);
   } catch (err) {
-    dialog.showErrorBox('Could not open file', String(err.message || err));
+    dialog.showErrorBox('Could not open file', err.friendly ? err.message : `${path.basename(r.filePaths[0])} could not be opened.\n\n${err.message || err}`);
     return null;
   }
 });
@@ -208,11 +325,11 @@ ipcMain.handle('pick-image', async () => {
   return `data:${mime};base64,${fs.readFileSync(p).toString('base64')}`;
 });
 
-ipcMain.handle('save-file', async (_e, { filePath, html, editorHtml, text, saveAs, page }) => {
+ipcMain.handle('save-file', async (_e, { filePath, suggestedName, html, editorHtml, text, saveAs, page }) => {
   let target = filePath;
   if (!target || saveAs) {
     const r = await dialog.showSaveDialog(win, {
-      defaultPath: target || 'Document1.docx',
+      defaultPath: target || suggestedName || 'Document1.docx',
       filters: FILTERS_SAVE,
     });
     if (r.canceled || !r.filePath) return null;
@@ -275,6 +392,10 @@ ipcMain.handle('print', () => new Promise((resolve) => {
 }));
 
 app.whenReady().then(() => {
+  const { session } = require('electron');
+  const allowed = new Set(['local-fonts', 'clipboard-read', 'clipboard-sanitized-write']);
+  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(allowed.has(perm)));
+  session.defaultSession.setPermissionCheckHandler((_wc, perm) => allowed.has(perm));
   buildMenu();
   createWindow();
 });
