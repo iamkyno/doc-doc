@@ -1,2 +1,5 @@
-- DocDoc now updates itself: when a new version is out you'll see a popup, can download it in the background and restart to finish.
-- Help → Check for Updates… and File → Updates to check any time.
+- **Real pages on screen:** see exactly where each page ends, with gaps between pages like Word. Printing and PDF break pages at exactly the same places. (View → Page view to switch it off.)
+- **Headers, footers and page numbers:** Insert → Header / Footer / Page Number, or double-click the top or bottom margin. Left, centre and right text, "Page 1 of 6", the date, and "Different first page" for cover pages. They are saved in Word files, printed, and read from Word documents you open.
+- **Autosave & recovery:** your work is backed up every few seconds. If DocDoc or your PC crashes, DocDoc offers to recover it next time.
+- **Recent files:** File → Recent, and File menu → Open Recent.
+- Fixed: long paragraphs didn't wrap in PDFs and printouts, and PDF margins were grey instead of white.

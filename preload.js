@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld('api', {
   checkForUpdates: () => ipcRenderer.send('update-check'),
   downloadUpdate: () => ipcRenderer.send('update-download'),
   installUpdate: () => ipcRenderer.send('update-install'),
+  recoverySave: (data) => ipcRenderer.invoke('recovery-save', data),
+  recoveryClear: () => ipcRenderer.invoke('recovery-clear'),
+  recoveryList: () => ipcRenderer.invoke('recovery-list'),
+  recoveryLoad: (id) => ipcRenderer.invoke('recovery-load', id),
+  recoveryDelete: (id) => ipcRenderer.invoke('recovery-delete', id),
+  recentList: () => ipcRenderer.invoke('recent-list'),
   closeNow: () => ipcRenderer.send('close-now'),
   onOpenPath: (cb) => ipcRenderer.on('open-path-result', (_e, r) => cb(r)),
 });

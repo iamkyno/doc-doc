@@ -9,6 +9,7 @@ const crypto = require('crypto');
 // so formatting (colours, sizes, shapes) survives reopening in DocDoc.
 // If the file was later edited in Word, the copy is ignored.
 const EMBED_PART = 'docdoc/content.json';
+const { readHeaderFooter, writeHeaderFooter } = require('./lib/headerfooter');
 const sha1 = (b) => crypto.createHash('sha1').update(b).digest('hex');
 
 let win;
@@ -108,11 +109,18 @@ async function readDocument(filePath) {
   const ext = path.extname(filePath).slice(1).toLowerCase();
   const base = path.parse(filePath).name;
   // Saving must never overwrite templates, macro files or old formats with .docx content.
-  const asDocx = (bytes, keepPath) => ({
-    filePath: keepPath ? filePath : null,
-    suggestedName: keepPath ? null : path.join(path.dirname(filePath), base + '.docx'),
-    docx: bytes,
-  });
+  const asDocx = async (bytes, keepPath) => {
+    let headerFooter = null;
+    try {
+      headerFooter = await readHeaderFooter(await require('jszip').loadAsync(bytes));
+    } catch (_) { /* no header/footer */ }
+    return {
+      filePath: keepPath ? filePath : null,
+      suggestedName: keepPath ? null : path.join(path.dirname(filePath), base + '.docx'),
+      docx: bytes,
+      headerFooter,
+    };
+  };
 
   if (WORD_EXT.includes(ext)) {
     const buf = fs.readFileSync(filePath);
@@ -221,6 +229,16 @@ function buildMenu() {
       submenu: [
         { label: 'New', accelerator: 'CmdOrCtrl+N', click: () => send('new') },
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => send('open') },
+        {
+          label: 'Open Recent',
+          submenu: loadRecent().length
+            ? [
+              ...loadRecent().map((f) => ({ label: path.basename(f), sublabel: path.dirname(f), click: () => send('openRecent:' + f) })),
+              { type: 'separator' },
+              { label: 'Clear Recent Files', click: () => { saveRecent([]); app.clearRecentDocuments(); buildMenu(); send('recentChanged'); } },
+            ]
+            : [{ label: 'No recent files', enabled: false }],
+        },
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => send('save') },
         { label: 'Save As…', accelerator: 'F12', click: () => send('saveAs') },
@@ -297,6 +315,13 @@ function createWindow() {
   });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
 
+  // If the page crashes, reload it; the autosaved copy is offered straight away.
+  win.webContents.on('render-process-gone', (_e, details) => {
+    if (details.reason === 'clean-exit') return;
+    rendererCrashed = true;
+    setTimeout(() => { if (win && !win.isDestroyed()) win.reload(); }, 300);
+  });
+
   // Spellcheck suggestions on right click.
   win.webContents.on('context-menu', (_e, params) => {
     const ctx = lastContext;
@@ -334,6 +359,7 @@ function createWindow() {
       message: 'Do you want to save changes to your document?',
     });
     if (choice === 2) e.preventDefault();
+    else if (choice === 1) clearRecovery(); // Don't Save: the user chose to discard
     else if (choice === 0) {
       e.preventDefault();
       send('saveThenClose');
@@ -346,6 +372,7 @@ function createWindow() {
     if (arg) {
       try {
         win.webContents.send('open-path-result', await readDocument(arg));
+        addRecent(arg);
       } catch (err) {
         dialog.showErrorBox('Could not open file', String(err.message || err));
       }
@@ -362,9 +389,15 @@ ipcMain.on('context-info', (e, info) => {
 
 // Open a file dropped onto the window.
 ipcMain.handle('open-path', async (_e, filePath) => {
-  if (!filePath || !fs.existsSync(filePath)) return null;
+  if (!filePath || !fs.existsSync(filePath)) {
+    dialog.showErrorBox('File not found', `${filePath || 'The file'} could not be found. It may have been moved or deleted.`);
+    removeRecent(filePath);
+    return null;
+  }
   try {
-    return await readDocument(filePath);
+    const doc = await readDocument(filePath);
+    addRecent(filePath);
+    return doc;
   } catch (err) {
     dialog.showErrorBox('Could not open file', err.friendly ? err.message : `${path.basename(filePath)} could not be opened.\n\n${err.message || err}`);
     return null;
@@ -398,7 +431,9 @@ ipcMain.handle('open-file', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS_OPEN });
   if (r.canceled || !r.filePaths.length) return null;
   try {
-    return await readDocument(r.filePaths[0]);
+    const doc = await readDocument(r.filePaths[0]);
+    addRecent(r.filePaths[0]);
+    return doc;
   } catch (err) {
     dialog.showErrorBox('Could not open file', err.friendly ? err.message : `${path.basename(r.filePaths[0])} could not be opened.\n\n${err.message || err}`);
     return null;
@@ -452,6 +487,7 @@ ipcMain.handle('save-file', async (_e, { filePath, suggestedName, html, editorHt
       const JSZip = require('jszip');
       const zip = await JSZip.loadAsync(Buffer.from(buf));
       zip.file('word/document.xml', fixTables(await zip.file('word/document.xml').async('string'), tableAlign || []));
+      await writeHeaderFooter(zip, page.hf, page, path.parse(target).name);
       const docXml = await zip.file('word/document.xml').async('nodebuffer');
       zip.file(EMBED_PART, JSON.stringify({ check: sha1(docXml), html: editorHtml || html, page }), { createFolders: false });
       const ct = await zip.file('[Content_Types].xml').async('string');
@@ -461,6 +497,7 @@ ipcMain.handle('save-file', async (_e, { filePath, suggestedName, html, editorHt
       }
       fs.writeFileSync(target, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
     }
+    addRecent(target);
     return target;
   } catch (err) {
     dialog.showErrorBox('Could not save file', String(err.message || err));
@@ -483,6 +520,83 @@ ipcMain.handle('export-pdf', async (_e, name) => {
 ipcMain.handle('print', () => new Promise((resolve) => {
   win.webContents.print({ printBackground: true }, (ok) => resolve(ok));
 }));
+
+/* ================= Autosave & recovery =================
+ * While a document has unsaved changes, the page sends a copy every few seconds. It is
+ * written to <userData>/recovery/<session>.json and deleted once the work is saved or
+ * discarded. If DocDoc or Windows crashes, the copy is offered the next time DocDoc starts.
+ */
+const RECOVERY_DIR = path.join(app.getPath('userData'), 'recovery');
+const SESSION = `${Date.now()}-${process.pid}`;
+const sessionFile = () => path.join(RECOVERY_DIR, `${SESSION}.json`);
+let rendererCrashed = false;
+function clearRecovery() {
+  try { fs.rmSync(sessionFile(), { force: true }); } catch (_) { /* ignore */ }
+}
+function processAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+ipcMain.handle('recovery-save', (_e, data) => {
+  try {
+    fs.mkdirSync(RECOVERY_DIR, { recursive: true });
+    const tmp = sessionFile() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ ...data, pid: process.pid }));
+    fs.renameSync(tmp, sessionFile()); // never leave a half-written backup
+    return true;
+  } catch (_) {
+    return false;
+  }
+});
+ipcMain.handle('recovery-clear', () => clearRecovery());
+// Backups left behind by DocDoc sessions that did not close properly.
+ipcMain.handle('recovery-list', () => {
+  let names = [];
+  try { names = fs.readdirSync(RECOVERY_DIR).filter((n) => n.endsWith('.json')); } catch (_) { return []; }
+  const out = [];
+  for (const n of names) {
+    const id = n.slice(0, -5);
+    if (id === SESSION && !rendererCrashed) continue;
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(RECOVERY_DIR, n), 'utf8'));
+      if (id !== SESSION && data.pid && data.pid !== process.pid && processAlive(data.pid)) continue; // another open DocDoc window
+      out.push({ id, name: data.name || 'Document', savedAt: data.savedAt || 0, filePath: data.filePath || null });
+    } catch (_) { /* unreadable backup */ }
+  }
+  rendererCrashed = false;
+  return out.sort((a, b) => b.savedAt - a.savedAt);
+});
+ipcMain.handle('recovery-load', (_e, id) => {
+  if (!/^[\w.-]+$/.test(id || '')) return null;
+  try { return JSON.parse(fs.readFileSync(path.join(RECOVERY_DIR, id + '.json'), 'utf8')); } catch (_) { return null; }
+});
+ipcMain.handle('recovery-delete', (_e, id) => {
+  if (!/^[\w.-]+$/.test(id || '') || id === SESSION) return;
+  try { fs.rmSync(path.join(RECOVERY_DIR, id + '.json'), { force: true }); } catch (_) { /* ignore */ }
+});
+
+/* ================= Recent files ================= */
+const RECENT_FILE = path.join(app.getPath('userData'), 'recent.json');
+function loadRecent() {
+  try { return JSON.parse(fs.readFileSync(RECENT_FILE, 'utf8')).filter((f) => typeof f === 'string'); } catch (_) { return []; }
+}
+function saveRecent(list) {
+  try { fs.writeFileSync(RECENT_FILE, JSON.stringify(list.slice(0, 10))); } catch (_) { /* ignore */ }
+}
+function addRecent(file) {
+  if (!file) return;
+  const full = path.resolve(file);
+  saveRecent([full, ...loadRecent().filter((f) => f.toLowerCase() !== full.toLowerCase())]);
+  try { app.addRecentDocument(full); } catch (_) { /* not supported */ }
+  buildMenu();
+  send('recentChanged');
+}
+function removeRecent(file) {
+  if (!file) return;
+  saveRecent(loadRecent().filter((f) => f !== file));
+  buildMenu();
+  send('recentChanged');
+}
+ipcMain.handle('recent-list', () => loadRecent().filter((f) => fs.existsSync(f)).map((f) => ({ path: f, name: path.basename(f), dir: path.dirname(f) })));
 
 /* ================= Automatic updates =================
  * New versions are published as GitHub Releases (see .github/workflows/build-windows.yml).
@@ -547,6 +661,7 @@ ipcMain.on('update-install', () => {
   // the page has already asked about unsaved work; install silently and reopen DocDoc
   if (!updater) return;
   forceClose = true;
+  clearRecovery();
   updater.quitAndInstall(true, true);
 });
 

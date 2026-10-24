@@ -11,7 +11,7 @@
 
   const PAGE_SIZES = { A4: [210, 297], Letter: [215.9, 279.4], Legal: [215.9, 355.6] };
   const FONT_STEPS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
-  const BLOCK_SEL = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,div:not(.shape):not(.page-break),pre';
+  const BLOCK_SEL = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,div:not(.shape):not(.page-break):not(.pg-gap),pre';
 
   const state = {
     filePath: null,
@@ -56,6 +56,7 @@
   }
   function exec(cmd, val = null) {
     flushHistory();
+    prepEdit();
     restoreSelection();
     document.execCommand(cmd, false, val);
     markDirty();
@@ -97,6 +98,7 @@
     $('#docname').textContent = name + (state.dirty ? ' •' : '');
     $('#saveState').textContent = state.dirty ? 'Unsaved changes' : (state.filePath ? 'Saved' : '');
     api.setTitle && api.setTitle(`${name}${state.dirty ? '*' : ''} - DocDoc`);
+    if (pagedMode() && /\{title\}/.test(JSON.stringify(state.hf))) drawPages();
     api.setDirty && api.setDirty(state.dirty);
   }
   function markDirty() {
@@ -107,6 +109,13 @@
     }
     scheduleStats();
     scheduleSnapshot();
+    schedulePaginate();
+    scheduleAutosave();
+  }
+  // Before a command changes the document, take the page spacers out (they are put back
+  // straight after, before the screen repaints).
+  function prepEdit() {
+    if (stripGaps()) schedulePaginate(true);
   }
   editor.addEventListener('input', () => {
     ensureParagraph();
@@ -185,13 +194,14 @@
     clearTimeout(hist.timer);
     hist.timer = null;
     const html = packHtml(editor.innerHTML);
+    const hf = JSON.stringify(state.hf);
     const cur = hist.stack[hist.idx];
-    if (cur && cur.html === html) {
+    if (cur && cur.html === html && cur.hf === hf) {
       cur.sel = saveSel() || cur.sel;
       return;
     }
     hist.stack.length = hist.idx + 1;
-    hist.stack.push({ html, sel: saveSel() });
+    hist.stack.push({ html, hf, sel: saveSel() });
     if (hist.stack.length > 300) hist.stack.shift();
     hist.idx = hist.stack.length - 1;
     updateUndoButtons();
@@ -217,6 +227,7 @@
     hist.restoring = true;
     selectObj(null);
     editor.innerHTML = unpackHtml(snap.html);
+    if (snap.hf) { state.hf = JSON.parse(snap.hf); applyPage(); }
     restoreSel(snap.sel);
     relayoutFloats();
     state.dirty = false;
@@ -225,6 +236,7 @@
     updateToolbarState();
     updateTableTab();
     updateUndoButtons();
+    schedulePaginate(true);
   }
   function undo() {
     flushHistory();
@@ -329,6 +341,8 @@
     zoomReset: () => setZoom(1),
     shortcuts: showShortcuts,
     checkUpdates: () => (api.checkForUpdates ? api.checkForUpdates() : null),
+    editHeader: () => editHeaderFooter('header'),
+    editFooter: () => editHeaderFooter('footer'),
     about: showAbout,
     saveThenClose: async () => {
       const ok = await saveDoc(false);
@@ -351,6 +365,9 @@
     else document.execCommand(cmd);
     if (cmd !== 'copy') setTimeout(markDirty, 50);
   }
+  // commands that don't change the text (no need to take page spacers out first)
+  const NO_EDIT = new Set(['new', 'open', 'save', 'saveAs', 'pdf', 'print', 'find', 'replace', 'zoomIn', 'zoomOut', 'zoomReset',
+    'shortcuts', 'about', 'checkUpdates', 'undo', 'redo', 'editHeader', 'editFooter', 'saveThenClose', 'copy']);
   const lastRun = {};
   function run(cmd) {
     // File shortcuts can arrive from both the menu and the page; run once.
@@ -360,6 +377,9 @@
       lastRun[cmd] = now;
     }
     if (cmd !== 'undo' && cmd !== 'redo') flushHistory();
+    if (cmd.startsWith('openRecent:')) return openRecent(cmd.slice(11));
+    if (cmd === 'recentChanged') return refreshRecent();
+    if (!NO_EDIT.has(cmd)) prepEdit();
     if (cmd.startsWith('table:')) return tableCmd(cmd.slice(6));
     if (cmd.startsWith('obj:')) return arrange(cmd.slice(4));
     if (commands[cmd]) commands[cmd]();
@@ -410,6 +430,7 @@
     });
   }
   function indent(dir) {
+    prepEdit();
     restoreSelection();
     if (anchorElement().closest('li')) {
       document.execCommand(dir > 0 ? 'indent' : 'outdent');
@@ -423,6 +444,7 @@
     markDirty();
   }
   function setLineSpacing(v) {
+    prepEdit();
     restoreSelection();
     selectedBlocks().forEach((b) => (b.style.lineHeight = v));
     $('#lineSpacing').value = Number(v).toFixed(v == 1.15 ? 2 : 1);
@@ -438,6 +460,7 @@
 
   /* ---------- Fonts ---------- */
   function applyFontSize(pt) {
+    prepEdit();
     restoreSelection();
     const r = currentRange();
     if (!r) return;
@@ -638,6 +661,7 @@
   $('#fontSize').addEventListener('change', (e) => applyFontSize(e.target.value));
 
   function changeCase() {
+    prepEdit();
     restoreSelection();
     const sel = window.getSelection();
     const t = sel.toString();
@@ -729,6 +753,7 @@
   /* ================= Insert ================= */
   // Insert block-level HTML (tables, breaks) after the current paragraph.
   function insertBlock(html) {
+    prepEdit();
     restoreSelection();
     const tpl = document.createElement('template');
     tpl.innerHTML = html;
@@ -1115,7 +1140,7 @@ ${rows}
   }
   function prevBlock(el) {
     let a = el.previousElementSibling;
-    while (a && a.classList.contains('floating')) a = a.previousElementSibling;
+    while (a && (a.classList.contains('floating') || isGap(a))) a = a.previousElementSibling;
     return a;
   }
   function anchorOf(el) {
@@ -1130,7 +1155,7 @@ ${rows}
     const top = parseFloat(el.style.top) || 0;
     let anchor = null;
     for (const b of editor.children) {
-      if (b.classList.contains('floating')) continue;
+      if (b.classList.contains('floating') || isGap(b)) continue;
       if (b.offsetTop <= top + 4) anchor = b;
       else break;
     }
@@ -1544,6 +1569,7 @@ ${rows}
     return out;
   }
   function paraBorder(kind) {
+    prepEdit();
     restoreSelection();
     const blocks = selectedBlocks();
     if (!blocks.length) return;
@@ -1651,6 +1677,7 @@ ${rows}
     caretIn(next);
   }
   function tableCmd(cmd) {
+    prepEdit();
     restoreSelection();
     const cell = currentCell();
     if (!cell) return;
@@ -1857,6 +1884,554 @@ ${rows}
   });
   $('#cellShadeBar').style.background = $('#cellShade').value;
 
+  /* ================= Page view ================= */
+  // The document stays one editable flow. Where a page ends, an invisible spacer
+  // (div.pg-gap, or a tr.pg-gap inside tables) pushes the next line / row / block to
+  // the top of the next page. White sheets, headers and footers are drawn behind the
+  // text in #pageLayer. When printing, every spacer becomes a page break, so paper and
+  // PDF match the screen.
+  const GAP = 28; // grey space between pages on screen
+  const MMPX = 96 / 25.4;
+  const layer = document.createElement('div');
+  layer.id = 'pageLayer';
+  page.prepend(layer);
+  state.pageView = (() => { try { return localStorage.getItem('docdoc-pageview') !== 'off'; } catch (_) { return true; } })();
+  state.pageCount = 1;
+  state.hf = { header: { l: '', c: '', r: '' }, footer: { l: '', c: '', r: '' }, firstDifferent: false };
+  let composing = false;
+  let pageTimer = null;
+  let pageFrame = null;
+
+  function pageGeom() {
+    const [w, h] = PAGE_SIZES[state.page.size];
+    const pw = (state.page.landscape ? h : w) * MMPX;
+    const ph = (state.page.landscape ? w : h) * MMPX;
+    const m = state.page.marginMm * MMPX;
+    return { pw, ph, m, P: ph + GAP, H: ph - 2 * m };
+  }
+  function isGap(n) {
+    return !!(n && n.nodeType === 1 && n.classList.contains('pg-gap'));
+  }
+  function pagedMode() {
+    return state.pageView && !editor.style.columnCount;
+  }
+  // Remove every spacer and re-join text that a spacer had split. The selection survives
+  // because DOM ranges follow node removal and text merging.
+  function stripGaps(root = editor) {
+    const gaps = root.querySelectorAll('.pg-gap');
+    if (!gaps.length) return false;
+    const parents = new Set();
+    gaps.forEach((g) => {
+      parents.add(g.parentNode);
+      g.remove();
+    });
+    parents.forEach((p) => p && p.normalize());
+    return true;
+  }
+  function schedulePaginate(now) {
+    clearTimeout(pageTimer);
+    if (now) {
+      cancelAnimationFrame(pageFrame);
+      pageFrame = requestAnimationFrame(paginate);
+    } else {
+      pageTimer = setTimeout(() => {
+        cancelAnimationFrame(pageFrame);
+        pageFrame = requestAnimationFrame(paginate);
+      }, 90);
+    }
+  }
+
+  // Visual lines of a paragraph-like element, in client coordinates.
+  function lineBoxes(el) {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    const rects = Array.from(r.getClientRects()).filter((b) => b.height > 0);
+    rects.sort((a, b) => a.top - b.top || a.left - b.left);
+    const lines = [];
+    for (const b of rects) {
+      const last = lines[lines.length - 1];
+      if (last && b.top < last.bottom - 2) {
+        last.top = Math.min(last.top, b.top);
+        last.bottom = Math.max(last.bottom, b.bottom);
+      } else lines.push({ top: b.top, bottom: b.bottom });
+    }
+    return lines;
+  }
+  // DOM position of the first character on a visual line (no hit-testing, so it also
+  // works for lines that are scrolled out of view).
+  function startOfLine(el, line) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+      acceptNode: (n) => (n.nodeType === 3 || /^(IMG|BR|svg)$/i.test(n.nodeName) || (n.classList && (n.classList.contains('textbox') || n.classList.contains('tickbox') || n.classList.contains('shape')))
+        ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+    });
+    const r = document.createRange();
+    const onOrAfter = (rect) => rect.height > 0 && rect.top >= line.top - 1;
+    while (walker.nextNode()) {
+      const n = walker.currentNode;
+      if (n.nodeType === 1) {
+        if (n.nodeName === 'BR') continue;
+        if (onOrAfter(n.getBoundingClientRect())) return [n.parentNode, Array.prototype.indexOf.call(n.parentNode.childNodes, n)];
+        continue;
+      }
+      if (!n.length) continue;
+      r.selectNodeContents(n);
+      const rects = Array.from(r.getClientRects());
+      if (!rects.some((b) => b.bottom > line.top + 1)) continue; // whole node is on earlier lines
+      let lo = 0;
+      let hi = n.length - 1;
+      let found = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        r.setStart(n, mid);
+        r.setEnd(n, mid + 1);
+        const b = r.getBoundingClientRect();
+        if (b.height > 0 && b.top >= line.top - 1) { found = mid; hi = mid - 1; } else lo = mid + 1;
+      }
+      if (found >= 0) return [n, found];
+    }
+    return null;
+  }
+  function hasBlockKids(el) {
+    for (const c of el.children) {
+      if (isGap(c) || c.classList.contains('floating')) continue;
+      const d = getComputedStyle(c).display;
+      if (d === 'block' || d === 'table' || d === 'list-item' || d === 'flex' || d === 'flow-root') return true;
+    }
+    return false;
+  }
+
+  // Find where the next page has to start: the first line / row / block that does not fit
+  // above `limit` (editor coordinates). Returns {before}, {after}, {row} or {inline}.
+  function findBreak(from, limit, pageTop, base, z) {
+    const Y = (v) => (v - base) / z;
+    const before = (el, top) => (top <= pageTop + 2 ? null : { before: el }); // taller than a page: let it run over
+    function descend(el, top) {
+      if (el.tagName === 'TABLE') {
+        const rows = Array.from(el.rows);
+        for (let i = 0; i < rows.length; i++) {
+          if (isGap(rows[i])) continue;
+          const rr = rows[i].getBoundingClientRect();
+          if (Y(rr.bottom) <= limit + 0.5) continue;
+          if (i === 0) return before(el, top);
+          if (Y(rr.top) <= pageTop + 2) continue; // a row taller than a page
+          return { row: rows[i] };
+        }
+        return null;
+      }
+      if (hasBlockKids(el)) {
+        const first = Array.from(el.children).find((c) => !isGap(c) && !c.classList.contains('floating'));
+        const res = scan(first, true);
+        if (res && res.before === first) return before(el, top) || res;
+        return res;
+      }
+      const lines = lineBoxes(el);
+      for (let i = 0; i < lines.length; i++) {
+        if (Y(lines[i].bottom) <= limit + 0.5) continue;
+        if (i === 0) return before(el, top);
+        if (Y(lines[i].top) <= pageTop + 2) continue; // a line taller than a page
+        const pos = startOfLine(el, lines[i]);
+        return pos ? { inline: pos } : before(el, top);
+      }
+      return null;
+    }
+    function scan(start, nested) {
+      for (let el = start; el; el = el.nextElementSibling) {
+        if (isGap(el) || el.classList.contains('floating')) continue;
+        const r = el.getBoundingClientRect();
+        if (!r.height && el.tagName !== 'DIV') continue;
+        const top = Y(r.top);
+        const bottom = Y(r.bottom);
+        if (!nested && el.classList.contains('page-break')) {
+          // a manual page break: the next page starts right after it
+          if (top < limit + 1 && !isGap(el.nextElementSibling)) return { after: el };
+          continue;
+        }
+        if (bottom <= limit + 0.5) continue;
+        if (top >= limit - 0.5) {
+          const res = before(el, top);
+          if (res) return res;
+          continue;
+        }
+        const res = descend(el, top);
+        if (res) return res;
+      }
+      return null;
+    }
+    return scan(from, false);
+  }
+  function topLevelOf(n) {
+    while (n && n.parentNode !== editor) n = n.parentNode;
+    return n;
+  }
+  function insertGap(res) {
+    if (res.row) {
+      const table = res.row.closest('table');
+      const cols = Math.max(1, ...Array.from(table.rows).map((tr) => Array.from(tr.cells).reduce((s, c) => s + (c.colSpan || 1), 0)));
+      const tr = document.createElement('tr');
+      tr.className = 'pg-gap';
+      const td = document.createElement('td');
+      td.colSpan = cols;
+      td.contentEditable = 'false';
+      td.style.height = '1px';
+      tr.appendChild(td);
+      res.row.before(tr);
+      return { el: tr, size: td, block: false };
+    }
+    // inside a paragraph the spacer must be a <span>: a <div> would split the paragraph
+    // when the HTML is read back (undo history, saved files)
+    const g = document.createElement(res.inline ? 'span' : 'div');
+    g.className = 'pg-gap';
+    g.contentEditable = 'false';
+    if (res.before) {
+      res.before.before(g);
+      return { el: g, size: g, block: true };
+    }
+    if (res.after) {
+      res.after.after(g);
+      return { el: g, size: g, block: true };
+    }
+    let [n, off] = res.inline;
+    if (n.nodeType === 3) {
+      if (off <= 0) n.before(g);
+      else if (off >= n.length) n.after(g);
+      else n.splitText(off).before(g);
+    } else n.insertBefore(g, n.childNodes[off] || null);
+    return { el: g, size: g, block: false };
+  }
+
+  function paginate() {
+    pageFrame = null;
+    if (composing) return;
+    const g = pageGeom();
+    if (!pagedMode()) {
+      stripGaps();
+      page.classList.remove('paged');
+      editor.style.minHeight = '';
+      page.style.minHeight = '';
+      state.pageCount = Math.max(1, Math.ceil((page.scrollHeight - 4) / g.ph), $$('.page-break', editor).length + 1);
+      updateStats();
+      return;
+    }
+    page.classList.add('paged');
+    stripGaps();
+    const z = state.zoom;
+    const base = editor.getBoundingClientRect().top;
+    let k = 0;
+    let from = editor.firstElementChild;
+    while (from && k < 2000) {
+      const pageTop = k * g.P;
+      const res = findBreak(from, pageTop + g.H, pageTop, base, z);
+      if (!res) break;
+      const gap = insertGap(res);
+      const target = (k + 1) * g.P; // where the next page's text starts (editor coordinates)
+      let after;
+      if (gap.block) {
+        let nx = gap.el.nextElementSibling;
+        while (nx && nx.classList.contains('floating')) nx = nx.nextElementSibling;
+        after = nx ? nx.getBoundingClientRect().top : gap.el.getBoundingClientRect().bottom;
+      } else after = gap.el.getBoundingClientRect().bottom;
+      const delta = target - (after - base) / z;
+      gap.size.style.height = Math.max(1, 1 + delta) + 'px';
+      from = topLevelOf(gap.el);
+      k++;
+    }
+    state.pageCount = k + 1;
+    editor.style.minHeight = (k * g.P + g.H) + 'px';
+    page.style.minHeight = (state.pageCount * g.P - GAP) + 'px';
+    drawPages();
+    relayoutFloats();
+    positionHandles();
+    updateStats();
+  }
+
+  /* ---------- sheets, headers and footers ---------- */
+  function hfText(text, n, total) {
+    return String(text || '')
+      .replace(/\{page\}/g, String(n))
+      .replace(/\{pages\}/g, String(total))
+      .replace(/\{date\}/g, new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }))
+      .replace(/\{title\}/g, docName().replace(/\.\w+$/, ''));
+  }
+  function drawPages() {
+    const g = pageGeom();
+    const n = state.pageCount;
+    const color = $('#pageColor').value || '#ffffff';
+    let html = '';
+    const row = (slots, top, kind, i) => {
+      const empty = !(slots.l || slots.c || slots.r);
+      return `<div class="hf ${kind}${empty ? ' empty' : ''}" data-kind="${kind}" data-hint="${kind === 'header' ? 'Double-click to add a header' : 'Double-click to add a footer'}" style="top:${top}px;width:${g.pw}px;height:${g.m}px;padding:0 ${g.m}px">`
+        + `<span class="l">${escapeHtml(hfText(slots.l, i + 1, n))}</span><span class="c">${escapeHtml(hfText(slots.c, i + 1, n))}</span><span class="r">${escapeHtml(hfText(slots.r, i + 1, n))}</span></div>`;
+    };
+    for (let i = 0; i < n; i++) {
+      const top = i * g.P;
+      html += `<div class="sheet" style="top:${top}px;width:${g.pw}px;height:${g.ph}px;background:${color}"></div>`;
+      const skip = i === 0 && state.hf.firstDifferent;
+      html += row(skip ? { l: '', c: '', r: '' } : state.hf.header, top, 'header', i);
+      html += row(skip ? { l: '', c: '', r: '' } : state.hf.footer, top + g.ph - g.m, 'footer', i);
+    }
+    layer.style.width = g.pw + 'px';
+    layer.style.height = (n * g.P - GAP) + 'px';
+    layer.innerHTML = html;
+  }
+  // Double-click a top or bottom margin to edit the header / footer (like Word).
+  page.addEventListener('dblclick', (e) => {
+    if (!pagedMode()) return;
+    const g = pageGeom();
+    const y = (e.clientY - page.getBoundingClientRect().top) / state.zoom;
+    const local = y - Math.floor(y / g.P) * g.P;
+    if (local < g.m) { e.preventDefault(); editHeaderFooter('header'); }
+    else if (local > g.ph - g.m && local <= g.ph) { e.preventDefault(); editHeaderFooter('footer'); }
+  });
+
+  async function editHeaderFooter(focus) {
+    const hf = state.hf;
+    const inp = (id, v) => `<input id="${id}" value="${escapeAttr(v || '')}" placeholder="—">`;
+    const r = await modal(`<h3 style="margin-top:0">Header &amp; Footer</h3>
+      <div class="hf-grid">
+        <span></span><span class="col-h">Left</span><span class="col-h">Centre</span><span class="col-h">Right</span>
+        <span class="lbl">Header</span>${inp('hfHl', hf.header.l)}${inp('hfHc', hf.header.c)}${inp('hfHr', hf.header.r)}
+        <span class="lbl">Footer</span>${inp('hfFl', hf.footer.l)}${inp('hfFc', hf.footer.c)}${inp('hfFr', hf.footer.r)}
+      </div>
+      <div class="hf-help">Click to insert: <code data-tok="{page}">{page}</code> page number · <code data-tok="{pages}">{pages}</code> number of pages · <code data-tok="{date}">{date}</code> today · <code data-tok="{title}">{title}</code> document name.<br>Example: <i>Page {page} of {pages}</i></div>
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="hfFirst" style="width:auto;height:auto;margin:0" ${hf.firstDifferent ? 'checked' : ''}> Different first page (no header or footer on the cover page)</label>`,
+    { ok: 'Apply', cancel: 'Cancel', onOpen: () => {
+      const target = $(focus === 'footer' ? '#hfFl' : '#hfHl');
+      if (target) target.focus();
+      let last = target;
+      $$('#modalBody .hf-grid input').forEach((i) => i.addEventListener('focus', () => { last = i; }));
+      $$('#modalBody [data-tok]').forEach((c) => c.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        if (!last) return;
+        const s = last.selectionStart ?? last.value.length;
+        last.value = last.value.slice(0, s) + c.dataset.tok + last.value.slice(last.selectionEnd ?? s);
+        last.focus();
+        last.selectionStart = last.selectionEnd = s + c.dataset.tok.length;
+      }));
+    } });
+    if (r !== 'ok') return;
+    const v = (id) => $('#' + id).value;
+    setHeaderFooter({
+      header: { l: v('hfHl'), c: v('hfHc'), r: v('hfHr') },
+      footer: { l: v('hfFl'), c: v('hfFc'), r: v('hfFr') },
+      firstDifferent: $('#hfFirst').checked,
+    });
+  }
+  function setHeaderFooter(hf, quiet) {
+    flushHistory();
+    state.hf = normalizeHf(hf);
+    applyPage();
+    drawPages();
+    if (!quiet) markDirty();
+  }
+  function normalizeHf(hf) {
+    const s = (o) => ({ l: (o && o.l) || '', c: (o && o.c) || '', r: (o && o.r) || '' });
+    return { header: s(hf && hf.header), footer: s(hf && hf.footer), firstDifferent: !!(hf && hf.firstDifferent) };
+  }
+  function pageNumbers(kind) {
+    const hf = normalizeHf(state.hf);
+    const strip = (o) => { for (const k of ['l', 'c', 'r']) if (/\{page\}/.test(o[k])) o[k] = ''; };
+    strip(hf.header);
+    strip(hf.footer);
+    if (kind === 'bottomCenter') hf.footer.c = '{page}';
+    if (kind === 'bottomRight') hf.footer.r = 'Page {page} of {pages}';
+    if (kind === 'topRight') hf.header.r = '{page}';
+    setHeaderFooter(hf);
+  }
+  $$('[data-pagenum]').forEach((b) => b.addEventListener('click', () => { closeDropdowns(); pageNumbers(b.dataset.pagenum); }));
+
+  // CSS for printed / PDF headers and footers (@page margin boxes).
+  function cssString(s) {
+    return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\A ') + '"';
+  }
+  function cssContent(text) {
+    if (!text) return 'none';
+    const date = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+    const parts = String(text)
+      .replace(/\{date\}/g, date)
+      .replace(/\{title\}/g, docName().replace(/\.\w+$/, ''))
+      .split(/(\{page\}|\{pages\})/)
+      .filter(Boolean)
+      .map((p) => (p === '{page}' ? 'counter(page)' : p === '{pages}' ? 'counter(pages)' : cssString(p)));
+    return parts.join(' ') || 'none';
+  }
+  function marginBoxes() {
+    const hf = state.hf;
+    const box = (name, text, align) => `@${name} { content: ${cssContent(text)}; font: 9pt Calibri, Carlito, "Segoe UI", sans-serif; color: #444; white-space: pre-wrap; text-align: ${align}; }`;
+    const all = (h, f) => [
+      box('top-left', h.l, 'left'), box('top-center', h.c, 'center'), box('top-right', h.r, 'right'),
+      box('bottom-left', f.l, 'left'), box('bottom-center', f.c, 'center'), box('bottom-right', f.r, 'right'),
+    ].join(' ');
+    const blank = { l: '', c: '', r: '' };
+    return { main: all(hf.header, hf.footer), first: hf.firstDifferent ? `@page :first { ${all(blank, blank)} }` : '' };
+  }
+
+  // Floating boxes are positioned in screen coordinates, which include the gaps between
+  // pages. Paper has no gaps, so shift them while printing.
+  async function withPrintLayout(fn) {
+    selectObj(null);
+    applyPage();
+    const moved = [];
+    if (pagedMode()) {
+      const g = pageGeom();
+      for (const el of editor.children) {
+        if (!el.classList.contains('floating')) continue;
+        const top = parseFloat(el.style.top) || 0;
+        const k = Math.max(0, Math.floor(top / g.P));
+        if (!k) continue;
+        moved.push([el, el.style.top]);
+        el.style.top = (top - k * (g.P - g.H)) + 'px';
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      moved.forEach(([el, top]) => { el.style.top = top; });
+    }
+  }
+
+  $('#pageViewToggle').checked = state.pageView;
+  $('#pageViewToggle').addEventListener('change', (e) => {
+    state.pageView = e.target.checked;
+    try { localStorage.setItem('docdoc-pageview', state.pageView ? 'on' : 'off'); } catch (_) { /* ignore */ }
+    schedulePaginate(true);
+  });
+  editor.addEventListener('compositionstart', () => { composing = true; });
+  editor.addEventListener('compositionend', () => { composing = false; schedulePaginate(); });
+  // pictures and fonts change the layout when they finish loading
+  editor.addEventListener('load', () => schedulePaginate(), true);
+  if (document.fonts) document.fonts.addEventListener('loadingdone', () => schedulePaginate());
+  // Backspace/Delete next to a spacer: take spacers out first, so the key edits the text
+  // (e.g. joins two paragraphs) instead of deleting the invisible spacer.
+  function caretNearGap() {
+    const sel = window.getSelection();
+    if (!sel.rangeCount || !inEditor(sel.anchorNode)) return false;
+    const top = topLevelOf(sel.anchorNode);
+    return !!top && top !== editor && (isGap(top) || isGap(top.previousElementSibling) || isGap(top.nextElementSibling) || !!(top.querySelector && top.querySelector('.pg-gap')));
+  }
+  // Copying across a page boundary must not copy the spacers.
+  function cleanClipboard(e, cut) {
+    const sel = window.getSelection();
+    if (!sel.rangeCount || sel.isCollapsed || !inEditor(sel.anchorNode)) return;
+    const frag = sel.getRangeAt(0).cloneContents();
+    if (!frag.querySelector('.pg-gap')) return;
+    const div = document.createElement('div');
+    div.appendChild(frag);
+    stripGaps(div);
+    e.clipboardData.setData('text/html', div.innerHTML);
+    e.clipboardData.setData('text/plain', div.textContent);
+    e.preventDefault();
+    if (cut) {
+      flushHistory();
+      document.execCommand('delete');
+    }
+  }
+  editor.addEventListener('copy', (e) => cleanClipboard(e, false));
+  editor.addEventListener('cut', (e) => cleanClipboard(e, true));
+
+  /* ================= Autosave, recovery and recent files ================= */
+  // While there are unsaved changes, a backup copy goes to the main process every few
+  // seconds. It is removed when the work is saved or discarded, and offered after a crash.
+  let autosaveTimer = null;
+  let lastBackup = null;
+  function cleanHtml() {
+    const clean = editor.cloneNode(true);
+    stripGaps(clean);
+    $$('.selected-obj', clean).forEach((x) => x.classList.remove('selected-obj'));
+    return clean.innerHTML;
+  }
+  function pageSettings() {
+    const [w, h] = PAGE_SIZES[state.page.size];
+    return {
+      widthMm: w, heightMm: h, marginMm: state.page.marginMm, landscape: state.page.landscape,
+      size: state.page.size, columns: $('#columns').value, color: $('#pageColor').value,
+      hf: state.hf,
+    };
+  }
+  function scheduleAutosave() {
+    if (autosaveTimer || !api.recoverySave) return;
+    autosaveTimer = setTimeout(autosaveNow, 6000);
+  }
+  function autosaveNow() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    if (!state.dirty || !api.recoverySave) return;
+    const html = cleanHtml();
+    const key = html + JSON.stringify(state.hf);
+    if (key === lastBackup) return;
+    lastBackup = key;
+    api.recoverySave({
+      html,
+      page: pageSettings(),
+      filePath: state.filePath,
+      suggestedName: state.suggestedName,
+      name: docName(),
+      savedAt: Date.now(),
+    });
+  }
+  function clearBackup() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    lastBackup = null;
+    if (api.recoveryClear) api.recoveryClear();
+  }
+  function timeAgo(t) {
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 90) return 'just now';
+    if (s < 3600) return `${Math.round(s / 60)} minutes ago`;
+    if (s < 86400) return `${Math.round(s / 3600)} hours ago`;
+    return new Date(t).toLocaleString();
+  }
+  async function offerRecovery() {
+    if (!api.recoveryList) return;
+    const items = await api.recoveryList();
+    if (!items || !items.length) return;
+    let chosen = null;
+    const list = items.map((it) => `<div class="rec-item"><div><b>${escapeHtml(it.name)}</b><small>Last changed ${escapeHtml(timeAgo(it.savedAt))}${it.filePath ? ' · ' + escapeHtml(it.filePath) : ' · never saved'}</small></div>
+      <button class="primary" data-rec-open="${escapeAttr(it.id)}">Recover</button><button data-rec-del="${escapeAttr(it.id)}">Delete</button></div>`).join('');
+    const r = await modal(`<span class="update-icon">🛟</span><div class="update-body"><h3 style="margin-top:0">Recover unsaved work?</h3>
+      <p>DocDoc didn't close properly last time. These documents had changes that were not saved:</p></div>${list}`,
+    { ok: 'Not now', cancel: null, onOpen: () => {
+      $$('#modalBody [data-rec-open]').forEach((b) => b.addEventListener('click', () => { chosen = b.dataset.recOpen; $('#modalOk').click(); }));
+      $$('#modalBody [data-rec-del]').forEach((b) => b.addEventListener('click', async () => {
+        await api.recoveryDelete(b.dataset.recDel);
+        b.closest('.rec-item').remove();
+        if (!$('#modalBody .rec-item')) $('#modalOk').click();
+      }));
+    } });
+    void r;
+    if (!chosen) return;
+    const data = await api.recoveryLoad(chosen);
+    if (!data) return;
+    if (!(await confirmDiscard())) return;
+    loadHtml(data.html, data.filePath, data.page, data.suggestedName || data.name);
+    state.dirty = true; // recovered work is not saved yet
+    updateTitle();
+    $('#saveState').textContent = 'Recovered – remember to save';
+    autosaveNow(); // keep it safe under this session before removing the old copy
+    await api.recoveryDelete(chosen);
+  }
+
+  // Recent files (File tab and File menu)
+  let recent = [];
+  async function refreshRecent() {
+    if (!api.recentList) return;
+    recent = await api.recentList();
+    const menu = $('#recentMenu');
+    menu.innerHTML = recent.length
+      ? recent.map((f, i) => `<button data-recent="${i}" title="${escapeAttr(f.path)}"><span>${escapeHtml(f.name)}</span><small>${escapeHtml(f.dir)}</small></button>`).join('')
+      : '<div class="none">No recent documents yet</div>';
+    $$('[data-recent]', menu).forEach((b) => b.addEventListener('click', () => {
+      closeDropdowns();
+      openRecent(recent[+b.dataset.recent].path);
+    }));
+  }
+  async function openRecent(file) {
+    if (!(await confirmDiscard())) return;
+    const r = api.openPath && (await api.openPath(file));
+    if (r) await loadResult(r);
+    refreshRecent();
+  }
+
   /* ================= Layout ================= */
   function applyPage() {
     const [w, h] = PAGE_SIZES[state.page.size];
@@ -1871,9 +2446,11 @@ ${rows}
       ps.id = 'printStyle';
       document.head.appendChild(ps);
     }
-    ps.textContent = `@media print { @page { size: ${pw}mm ${ph}mm; margin: ${state.page.marginMm}mm; } .page { width: auto !important; padding: 0 !important; } }`;
+    const mb = marginBoxes();
+    ps.textContent = `@media print { @page { size: ${pw}mm ${ph}mm; margin: ${state.page.marginMm}mm; background: ${/^#[0-9a-f]{6}$/i.test($('#pageColor').value) ? $('#pageColor').value : '#ffffff'}; ${mb.main} } ${mb.first} .page { width: ${pw - 2 * state.page.marginMm}mm !important; padding: 0 !important; } #zoomer { width: auto !important; } }`;
     positionHandles();
     scheduleStats();
+    schedulePaginate(true);
   }
   $('#margins').addEventListener('change', (e) => { state.page.marginMm = +e.target.value; applyPage(); markDirty(); });
   $('#orientation').addEventListener('change', (e) => { state.page.landscape = e.target.value === 'landscape'; applyPage(); markDirty(); });
@@ -1881,10 +2458,13 @@ ${rows}
   $('#columns').addEventListener('change', (e) => {
     editor.style.columnCount = e.target.value === '1' ? '' : e.target.value;
     editor.style.columnGap = '12mm';
+    if (e.target.value !== '1' && state.pageView) $('#saveState').textContent = 'Page view is off while using columns';
     markDirty();
   });
   $('#pageColor').addEventListener('input', (e) => {
     page.style.backgroundColor = e.target.value;
+    applyPage();
+    if (pagedMode()) drawPages();
     markDirty();
   });
 
@@ -1915,14 +2495,12 @@ ${rows}
     const words = (text.match(/[\p{L}\p{N}'’-]+/gu) || []).length;
     $('#wordCount').textContent = `${words.toLocaleString()} word${words === 1 ? '' : 's'}`;
     $('#charCount').textContent = `${text.replace(/\n/g, '').length.toLocaleString()} characters`;
-    const mmPx = 96 / 25.4;
-    const [w, h] = PAGE_SIZES[state.page.size];
-    const ph = (state.page.landscape ? w : h) * mmPx;
-    const breaks = $$('.page-break', editor).length;
-    const pages = Math.max(1, Math.ceil((page.scrollHeight - 4) / ph), breaks + 1);
+    const g = pageGeom();
+    const pages = state.pageCount || 1;
+    const step = pagedMode() ? g.P : g.ph;
     const wr = workspace.getBoundingClientRect();
     const pr = page.getBoundingClientRect();
-    const cur = Math.min(pages, Math.max(1, Math.floor((wr.top + wr.height / 3 - pr.top) / state.zoom / ph) + 1));
+    const cur = Math.min(pages, Math.max(1, Math.floor((wr.top + wr.height / 3 - pr.top) / state.zoom / step) + 1));
     $('#pageInfo').textContent = `Page ${cur} of ${pages}`;
   }
   workspace.addEventListener('scroll', scheduleStats);
@@ -2106,7 +2684,7 @@ ${rows}
   $('#findClose').addEventListener('click', closeFind);
 
   /* ================= Modal helpers ================= */
-  function modal(html, { ok = 'OK', cancel = 'Cancel', extra } = {}) {
+  function modal(html, { ok = 'OK', cancel = 'Cancel', extra, onOpen } = {}) {
     return new Promise((resolve) => {
       const m = $('#modal');
       $('#modalBody').innerHTML = html;
@@ -2124,6 +2702,7 @@ ${rows}
       m.hidden = false;
       const first = $('#modalBody input');
       (first || okB).focus();
+      if (onOpen) onOpen();
       const done = (v) => {
         m.hidden = true;
         okB.onclick = cB.onclick = null;
@@ -2165,6 +2744,7 @@ ${rows}
       ['Ctrl+K', 'Insert link (Ctrl+Click to open)'], ['Ctrl+Enter', 'Page break'], ['Alt+Shift+D', 'Insert date'],
       ['Tab / Shift+Tab', 'Tab, list level, next table cell'], ['Delete', 'Delete selected picture or shape'],
       ['Right-click in a table', 'Insert / delete rows and columns, merge cells'],
+      ['Double-click top / bottom margin', 'Edit header / footer'],
       ['Ctrl+Shift+F / P', 'Jump to font / size box'], ['Ctrl+Mouse wheel', 'Zoom'],
     ];
     modal('<h3 style="margin-top:0">Keyboard Shortcuts</h3><table>' + rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('') + '</table>', { cancel: null });
@@ -2212,6 +2792,10 @@ ${rows}
         return;
       }
     }
+    if ((e.key === 'Backspace' || e.key === 'Delete') && !inField && caretNearGap()) {
+      stripGaps(); // the key then edits the text itself; pages are re-flowed afterwards
+      schedulePaginate();
+    }
     if (e.key === 'F3' && e.shiftKey) { e.preventDefault(); changeCase(); return; }
     if (e.key === 'F1') { e.preventDefault(); showShortcuts(); return; }
     if (e.key === 'F12') { e.preventDefault(); run('saveAs'); return; }
@@ -2222,7 +2806,7 @@ ${rows}
       const el = anchorElement();
       const cell = el.closest('td,th');
       if (cell) {
-        const all = $$('td,th', cell.closest('table'));
+        const all = $$('td,th', cell.closest('table')).filter((c) => !c.closest('.pg-gap'));
         let i = all.indexOf(cell) + (e.shiftKey ? -1 : 1);
         if (i >= all.length) {
           const row = cell.closest('tr');
@@ -2232,7 +2816,7 @@ ${rows}
           markDirty();
           i = all.length;
         }
-        const target = $$('td,th', cell.closest('table'))[Math.max(0, i)];
+        const target = $$('td,th', cell.closest('table')).filter((c) => !c.closest('.pg-gap'))[Math.max(0, i)];
         const r = document.createRange();
         r.selectNodeContents(target);
         const sel = window.getSelection();
@@ -2302,6 +2886,7 @@ ${rows}
       ok: 'Save', extra: "Don't Save", cancel: 'Cancel',
     });
     if (r === 'ok') return saveDoc(false);
+    if (r === 'extra') clearBackup(); // "Don't Save": the user chose to throw the changes away
     return r === 'extra';
   }
   // Work out page size/orientation from saved or imported settings.
@@ -2342,6 +2927,7 @@ ${rows}
     state.page.landscape = ps.landscape;
     state.page.marginMm = pg.marginMm || 25.4;
     state.suggestedName = suggestedName || null;
+    state.hf = normalizeHf(pg.hf);
     $('#pageSize').value = state.page.size;
     $('#orientation').value = state.page.landscape ? 'landscape' : 'portrait';
     setMarginOption(state.page.marginMm);
@@ -2368,6 +2954,8 @@ ${rows}
     window.getSelection().addRange(r);
     resetHistory();
     updateTableTab();
+    lastBackup = null;
+    schedulePaginate(true);
   }
   async function newDoc() {
     if (!(await confirmDiscard())) return;
@@ -2390,11 +2978,11 @@ ${rows}
     document.body.style.cursor = 'progress';
     try {
       const res = await window.DocImport.importDocx(r.docx);
-      loadHtml(res.html, r.filePath, res.page, r.suggestedName);
+      loadHtml(res.html, r.filePath, { ...res.page, hf: r.headerFooter }, r.suggestedName);
     } catch (err) {
       console.error(err);
       const html = api.docxBasic ? await api.docxBasic(r.docx) : '';
-      loadHtml(html, r.filePath, null, r.suggestedName);
+      loadHtml(html, r.filePath, { hf: r.headerFooter }, r.suggestedName);
       $('#saveState').textContent = 'Opened in simple mode';
     } finally {
       document.body.style.cursor = '';
@@ -2440,11 +3028,12 @@ ${rows}
       const top = el.offsetTop;
       let anchor = -1;
       liveKids.forEach((b, j) => {
-        if (!b.classList.contains('floating') && b.offsetTop <= top + 4) anchor = j;
+        if (!b.classList.contains('floating') && !isGap(b) && b.offsetTop <= top + 4) anchor = j;
       });
       if (anchor >= 0) cloneKids[anchor].after(cloneKids[i]);
       else clone.prepend(cloneKids[i]);
     });
+    stripGaps(clone);
     const cl = $$('.shape', clone);
     for (let i = 0; i < cl.length; i++) {
       const png = await shapeToPng(liveOf(cl[i]));
@@ -2514,8 +3103,12 @@ ${rows}
     const target = state.filePath || '';
     const isDocx = saveAs || !target || /\.docx$/i.test(target);
     const clean = editor.cloneNode(true);
+    stripGaps(clean);
     $$('.selected-obj', clean).forEach((x) => x.classList.remove('selected-obj'));
-    const [w, h] = PAGE_SIZES[state.page.size];
+    // plain text without the page spacers' line breaks
+    stripGaps();
+    const plain = editor.innerText;
+    schedulePaginate(true);
     $('#saveState').textContent = 'Saving…';
     const result = await api.saveFile({
       filePath: state.filePath,
@@ -2523,13 +3116,11 @@ ${rows}
       saveAs,
       ...(isDocx ? await htmlForDocx() : { html: clean.innerHTML }),
       editorHtml: clean.innerHTML,
-      text: editor.innerText,
-      page: {
-        widthMm: w, heightMm: h, marginMm: state.page.marginMm, landscape: state.page.landscape,
-        size: state.page.size, columns: $('#columns').value, color: $('#pageColor').value,
-      },
+      text: plain,
+      page: pageSettings(),
     });
     if (!result) { updateTitle(); return false; }
+    clearBackup();
     state.suggestedName = null;
     state.filePath = result;
     state.dirty = false;
@@ -2537,14 +3128,11 @@ ${rows}
     return true;
   }
   async function exportPdf() {
-    selectObj(null);
-    applyPage();
-    api.exportPdf && (await api.exportPdf(docName()));
+    if (!api.exportPdf) return;
+    await withPrintLayout(() => api.exportPdf(docName()));
   }
-  function printDoc() {
-    selectObj(null);
-    applyPage();
-    api.print ? api.print() : window.print();
+  async function printDoc() {
+    await withPrintLayout(() => (api.print ? api.print() : window.print()));
   }
 
   /* ================= Utils ================= */
@@ -2742,4 +3330,9 @@ ${rows}
   updateStats();
   editor.focus();
   resetHistory();
+  schedulePaginate(true);
+  refreshRecent();
+  setTimeout(offerRecovery, 600);
+  // read-only hooks for automated tests
+  window.DocDocTest = { paginate, pageCount: () => state.pageCount, geom: pageGeom };
 })();

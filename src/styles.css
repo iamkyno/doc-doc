@@ -81,7 +81,7 @@ input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4
 .bar { display: block; width: 16px; height: 4px; margin-top: 1px; }
 
 .styles { display: flex; gap: 3px; height: 66px; align-items: center; }
-.styles button { height: 58px !important; min-width: 70px; background: #fff !important; border: 1px solid #ddd !important; }
+.styles button { height: 58px !important; min-width: 62px; padding: 2px 5px !important; background: #fff !important; border: 1px solid #ddd !important; }
 .styles button:hover { border-color: var(--accent) !important; }
 
 .dropdown { position: relative; }
@@ -192,11 +192,19 @@ input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4
 /* ---------- Print ---------- */
 @media print {
   @page { size: var(--print-size, A4); margin: 0; }
-  body { background: #fff; overflow: visible; display: block; height: auto; }
+  /* the page margins are painted with the document background: keep paper white */
+  html, body { background: #fff !important; }
+  body { overflow: visible; display: block; height: auto; }
   #ribbon, #status, #findbar, #handle, #mover, #modal { display: none !important; }
   #workspace { padding: 0; overflow: visible; }
   #zoomer { zoom: 1 !important; }
-  .page { box-shadow: none; background-image: none; min-height: 0; }
+  .page { box-shadow: none; background-image: none; min-height: 0 !important; background: none !important; }
+  #pageLayer { display: none !important; }
+  #editor { min-height: 0 !important; }
+  /* page view gaps become exact page breaks, so print matches the screen */
+  #editor div.pg-gap, #editor span.pg-gap { height: 0 !important; padding: 0 !important; margin: 0 !important; break-before: page; }
+  #editor tr.pg-gap { break-before: page; }
+  #editor tr.pg-gap td { height: 0 !important; }
   .selected-obj { outline: none !important; }
   #editor .page-break { border: 0; margin: 0; }
   #editor .page-break::after { display: none; }
@@ -256,3 +264,37 @@ input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4
 #modal .update-icon { font-size: 30px; float: left; margin: 0 12px 4px 0; }
 #modal .update-body { overflow: hidden; }
 #modal .update-body + * { clear: both; }
+
+/* ---------- Page view: separate sheets drawn behind the text ---------- */
+.page.paged { background: transparent !important; background-image: none !important; box-shadow: none !important; z-index: 0; }
+#pageLayer { position: absolute; left: 0; top: 0; z-index: -1; display: none; }
+.page.paged #pageLayer { display: block; }
+#pageLayer .sheet { position: absolute; left: 0; box-shadow: 0 1px 3px rgba(0,0,0,.25), 0 6px 18px rgba(0,0,0,.08); }
+#pageLayer .hf { position: absolute; left: 0; display: flex; align-items: center; gap: 12px; box-sizing: border-box;
+  font: 9pt Calibri, Carlito, "Segoe UI", sans-serif; color: #555; white-space: pre-wrap; line-height: 1.2; cursor: default; }
+#pageLayer .hf span { flex: 1 1 0; min-width: 0; }
+#pageLayer .hf .c { text-align: center; }
+#pageLayer .hf .r { text-align: right; }
+#pageLayer .hf.empty:hover::after { content: attr(data-hint); position: absolute; left: 50%; transform: translateX(-50%); color: #aab; font-style: italic; }
+#pageLayer .pnum { position: absolute; right: -44px; font: 10px "Segoe UI", sans-serif; color: #889; }
+/* invisible spacers that push content to the next page */
+#editor div.pg-gap, #editor span.pg-gap { display: block; box-sizing: border-box; padding: 1px 0 0; height: 1px; margin: 0; border: 0; background: transparent; user-select: none; }
+#editor tr.pg-gap td { padding: 0 !important; border: none !important; background: transparent !important; min-width: 0; }
+/* header / footer dialog */
+#modal .hf-grid { display: grid; grid-template-columns: 70px 1fr 1fr 1fr; gap: 6px 8px; align-items: center; margin: 8px 0; }
+#modal .hf-grid input { margin: 0; }
+#modal .hf-grid .lbl { font-weight: 600; }
+#modal .hf-grid .col-h { font-size: 11px; color: #777; text-align: center; }
+#modal .hf-help { font-size: 12px; color: #666; margin: 6px 0; }
+#modal .hf-help code { background: #eef1f6; padding: 0 4px; border-radius: 3px; cursor: pointer; }
+/* recent files menu */
+.menu.recent { min-width: 280px; max-width: 420px; }
+.menu.recent button { flex-direction: column; align-items: flex-start !important; height: auto !important; padding: 4px 8px !important; }
+.menu.recent small { color: #888; font-size: 10.5px; max-width: 390px; overflow: hidden; text-overflow: ellipsis; }
+.menu.recent .none { padding: 6px 8px; color: #888; }
+/* recovery dialog */
+#modal .rec-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #eee; }
+#modal .rec-item div { flex: 1; }
+#modal .rec-item small { display: block; color: #777; }
+#modal .rec-item button { height: 26px; border: 1px solid #bbb; background: #f4f4f4; border-radius: 3px; cursor: pointer; padding: 0 10px; }
+#modal .rec-item button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }

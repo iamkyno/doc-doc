@@ -41,6 +41,10 @@
     <div class="group"><div class="row">
       <button class="big" data-cmd="new" title="New (Ctrl+N)"><span class="ico">🗋</span>New</button>
       <button class="big" data-cmd="open" title="Open (Ctrl+O)"><span class="ico">📂</span>Open</button>
+      <div class="dropdown">
+        <button class="big" data-dd="recentMenu" title="Recently opened documents"><span class="ico">🕘</span>Recent ▾</button>
+        <div class="menu list recent" id="recentMenu"></div>
+      </div>
       <button class="big" data-cmd="save" title="Save (Ctrl+S)"><span class="ico">💾</span>Save</button>
       <button class="big" data-cmd="saveAs" title="Save As (F12)"><span class="ico">🖫</span>Save As</button>
       <button class="big" data-cmd="pdf" title="Export as PDF"><span class="ico">📄</span>PDF</button>
@@ -166,6 +170,20 @@
     <div class="group"><div class="row">
       <button class="big" data-cmd="pageBreak" title="Page Break (Ctrl+Enter)"><span class="ico">⤓</span>Page<br>Break</button>
     </div><label>Pages</label></div>
+
+    <div class="group"><div class="row">
+      <button class="big" data-cmd="editHeader" title="Header: text at the top of every page (or double-click the top margin)"><span class="ico">▔</span>Header</button>
+      <button class="big" data-cmd="editFooter" title="Footer: text at the bottom of every page (or double-click the bottom margin)"><span class="ico">▁</span>Footer</button>
+      <div class="dropdown">
+        <button class="big" data-dd="pageNumMenu" title="Page numbers"><span class="ico">#</span>Page<br>Number ▾</button>
+        <div class="menu list" id="pageNumMenu">
+          <button data-pagenum="bottomCenter">Bottom centre: 1</button>
+          <button data-pagenum="bottomRight">Bottom right: Page 1 of 3</button>
+          <button data-pagenum="topRight">Top right: 1</button>
+          <button data-pagenum="remove">⊘ Remove page numbers</button>
+        </div>
+      </div>
+    </div><label>Header &amp; Footer</label></div>
 
     <div class="group"><div class="row">
       <div class="dropdown">
@@ -344,7 +362,8 @@
       <button data-cmd="zoomReset">100%</button>
     </div><label>Zoom</label></div>
     <div class="group"><div class="col">
-      <label class="inline"><input type="checkbox" id="spellToggle" checked> Spell check</label>
+      <label class="inline" style="justify-content:flex-start"><input type="checkbox" id="pageViewToggle" checked> Page view (separate pages)</label>
+      <label class="inline" style="justify-content:flex-start"><input type="checkbox" id="spellToggle" checked> Spell check</label>
       <button data-cmd="shortcuts">⌨ Keyboard Shortcuts (F1)</button>
     </div><label>Show</label></div>
   </section>
