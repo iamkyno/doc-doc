@@ -328,6 +328,8 @@
     zoomOut: () => setZoom(state.zoom - 0.1),
     zoomReset: () => setZoom(1),
     shortcuts: showShortcuts,
+    checkUpdates: () => (api.checkForUpdates ? api.checkForUpdates() : null),
+    about: showAbout,
     saveThenClose: async () => {
       const ok = await saveDoc(false);
       if (ok) api.closeNow && api.closeNow();
@@ -2632,6 +2634,106 @@ ${rows}
     }
     if (api.contextInfo) api.contextInfo({ table: !!(cell && inEditor(cell)), object: !!state.selectedObj });
   });
+
+  /* ================= Updates ================= */
+  // The main process checks GitHub Releases; this shows the popups and progress.
+  const upd = { version: null, downloading: false, ready: false };
+  let appVersion = '';
+  if (api.appVersion) {
+    api.appVersion().then((v) => {
+      appVersion = v;
+      $('#appVersion').textContent = 'version ' + v;
+    });
+  }
+  // Wait until no other dialog is open (e.g. the user is mid-way through inserting a link).
+  function whenModalFree(fn) {
+    if ($('#modal').hidden) fn();
+    else setTimeout(() => whenModalFree(fn), 1000);
+  }
+  async function offerUpdate(info) {
+    const notes = info.notes ? `<div><b>What's new</b></div><div class="update-notes">${escapeHtml(info.notes)}</div>` : '';
+    const r = await modal(
+      `<span class="update-icon">⬇️</span><div class="update-body"><h3 style="margin-top:0">Update available</h3>
+       <p>DocDoc <b>${escapeHtml(info.version)}</b> is available. You have version ${escapeHtml(info.current || appVersion)}.</p></div>${notes}
+       <p style="color:#666;font-size:12px;margin-bottom:0">It downloads in the background while you keep working.</p>`,
+      { ok: 'Download update', cancel: 'Later' }
+    );
+    if (r === 'ok') {
+      upd.downloading = true;
+      $('#updateState').textContent = 'Downloading update… 0%';
+      api.downloadUpdate();
+    } else {
+      $('#updateState').textContent = `Update ${info.version} available`;
+      $('#updateState').title = 'Click to download';
+    }
+  }
+  async function offerRestart(info) {
+    const r = await modal(
+      `<span class="update-icon">✅</span><div class="update-body"><h3 style="margin-top:0">Update ready</h3>
+       <p>DocDoc <b>${escapeHtml(info.version)}</b> has downloaded. Restart DocDoc to finish updating.</p></div>
+       <p style="color:#666;font-size:12px;margin-bottom:0">If you choose Later, it installs automatically next time you close DocDoc.</p>`,
+      { ok: 'Restart & update', cancel: 'Later' }
+    );
+    if (r === 'ok') installUpdate();
+  }
+  async function installUpdate() {
+    // save (or discard) work first: the installer closes DocDoc
+    if (!(await confirmDiscard())) return;
+    state.dirty = false;
+    updateTitle();
+    $('#updateState').textContent = 'Installing update…';
+    api.installUpdate();
+  }
+  $('#updateState').addEventListener('click', () => {
+    if (upd.ready) whenModalFree(() => offerRestart({ version: upd.version }));
+    else if (upd.version && !upd.downloading) whenModalFree(() => offerUpdate({ version: upd.version, current: appVersion }));
+  });
+  if (api.onUpdate) {
+    api.onUpdate((info) => {
+      const bar = $('#updateState');
+      switch (info.state) {
+        case 'checking':
+          bar.textContent = 'Checking for updates…';
+          break;
+        case 'available':
+          upd.version = info.version;
+          bar.textContent = '';
+          if (!upd.downloading && !upd.ready) whenModalFree(() => offerUpdate(info));
+          break;
+        case 'progress':
+          upd.downloading = true;
+          bar.textContent = `Downloading update… ${info.percent}%`;
+          break;
+        case 'downloaded':
+          upd.downloading = false;
+          upd.ready = true;
+          upd.version = info.version;
+          bar.textContent = `Update ${info.version} ready – click to restart`;
+          whenModalFree(() => offerRestart(info));
+          break;
+        case 'none':
+          bar.textContent = '';
+          whenModalFree(() => modal(`<span class="update-icon">👍</span><h3 style="margin-top:0">You're up to date</h3><p>DocDoc ${escapeHtml(info.current || appVersion)} is the latest version.</p>`, { cancel: null }));
+          break;
+        case 'dev':
+          whenModalFree(() => modal('<h3 style="margin-top:0">Updates</h3><p>Updates work in the installed app (this copy is running from source).</p>', { cancel: null }));
+          break;
+        case 'error':
+          if (upd.downloading) {
+            upd.downloading = false;
+            bar.textContent = 'Update download failed – click to retry';
+          } else if (!info.quiet) {
+            bar.textContent = '';
+            whenModalFree(() => modal(`<h3 style="margin-top:0">Couldn't check for updates</h3><p>Check your internet connection and try again.</p><p style="color:#888;font-size:12px">${escapeHtml(info.message || '')}</p>`, { cancel: null }));
+          }
+          break;
+        default:
+      }
+    });
+  }
+  function showAbout() {
+    modal(`<h3 style="margin-top:0">DocDoc</h3><p>Version ${escapeHtml(appVersion || '?')}</p><p>A simple document editor for Windows.</p>`, { cancel: null });
+  }
 
   /* ================= Start ================= */
   applyPage();

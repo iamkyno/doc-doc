@@ -27,6 +27,22 @@ A simple, friendly document editor for Windows. Word-style ribbon, the usual key
 
 Press **F1** in the app to see every keyboard shortcut.
 
+## Updates
+
+Installed copies of DocDoc check GitHub for a newer version when they start (and every 4 hours).
+When one is found, users get an **Update available** popup with the release notes. The update
+downloads in the background, then **Restart & update** installs it (or it installs the next time
+DocDoc is closed). Users can also check any time with **Help → Check for Updates** or **File → Check for Updates**.
+
+### Publishing an update
+
+1. Make your changes.
+2. Raise `"version"` in `package.json` (for example `1.5.0` → `1.5.1`). Users only get an update when this number goes up.
+3. Write what's new in `RELEASE_NOTES.md` (this text appears in the popup).
+4. Push to `master`. GitHub Actions builds the installer and publishes the release `v1.5.1` with `latest.yml`, which is what the app checks.
+
+Pushes without a version change still build the installer, but don't create a release, so nobody is offered a half-finished version.
+
 ## Develop
 
 ```

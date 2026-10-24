@@ -46,6 +46,10 @@
       <button class="big" data-cmd="pdf" title="Export as PDF"><span class="ico">📄</span>PDF</button>
       <button class="big" data-cmd="print" title="Print (Ctrl+P)"><span class="ico">🖨</span>Print</button>
     </div><label>File</label></div>
+    <div class="group"><div class="row">
+      <button class="big" data-cmd="checkUpdates" title="Check for a newer version of DocDoc"><span class="ico">⟳</span>Check for<br>Updates</button>
+      <div class="col version-info"><span>DocDoc</span><span id="appVersion">version …</span></div>
+    </div><label>Updates</label></div>
   </section>
 
   <!-- HOME -->
@@ -369,6 +373,7 @@
   <span id="wordCount">0 words</span>
   <span id="charCount">0 characters</span>
   <span class="spacer"></span>
+  <span id="updateState"></span>
   <span id="saveState"></span>
   <span id="zoomLabel">100%</span>
 </footer>

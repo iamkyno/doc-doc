@@ -261,7 +261,12 @@ function buildMenu() {
     },
     {
       label: 'Help',
-      submenu: [{ label: 'Keyboard Shortcuts', accelerator: 'F1', click: () => send('shortcuts') }],
+      submenu: [
+        { label: 'Keyboard Shortcuts', accelerator: 'F1', click: () => send('shortcuts') },
+        { type: 'separator' },
+        { label: 'Check for Updates…', click: () => checkForUpdates(true) },
+        { label: `About DocDoc (version ${app.getVersion()})`, click: () => send('about') },
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -479,6 +484,72 @@ ipcMain.handle('print', () => new Promise((resolve) => {
   win.webContents.print({ printBackground: true }, (ok) => resolve(ok));
 }));
 
+/* ================= Automatic updates =================
+ * New versions are published as GitHub Releases (see .github/workflows/build-windows.yml).
+ * The installed app checks for a newer release on start-up and every few hours, then the
+ * page shows "Update available" -> download progress -> "Restart to update".
+ */
+let updater = null;
+let manualCheck = false;
+function sendUpdate(info) {
+  if (win && !win.isDestroyed()) win.webContents.send('update-status', info);
+}
+// GitHub gives release notes as HTML; the page shows plain text.
+function plainNotes(notes) {
+  const text = Array.isArray(notes) ? notes.map((n) => n.note || '').join('\n') : String(notes || '');
+  return text
+    .replace(/<\/(p|li|h\d|div)>|<br\s*\/?>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 4000);
+}
+function setupUpdates() {
+  if (!app.isPackaged) return; // only the installed app updates itself
+  const { autoUpdater } = require('electron-updater');
+  updater = autoUpdater;
+  autoUpdater.autoDownload = false; // ask first
+  autoUpdater.autoInstallOnAppQuit = true; // a downloaded update installs when DocDoc closes
+  autoUpdater.on('update-available', (info) => {
+    sendUpdate({ state: 'available', version: info.version, current: app.getVersion(), notes: plainNotes(info.releaseNotes) });
+  });
+  autoUpdater.on('update-not-available', () => {
+    if (manualCheck) sendUpdate({ state: 'none', current: app.getVersion() });
+    manualCheck = false;
+  });
+  autoUpdater.on('download-progress', (p) => sendUpdate({ state: 'progress', percent: Math.round(p.percent || 0) }));
+  autoUpdater.on('update-downloaded', (info) => sendUpdate({ state: 'downloaded', version: info.version }));
+  autoUpdater.on('error', (err) => {
+    // stay quiet on automatic checks (e.g. offline); explain on a manual check or a failed download
+    sendUpdate({ state: 'error', quiet: !manualCheck, message: String((err && err.message) || err).split('\n')[0] });
+    manualCheck = false;
+  });
+  setTimeout(() => checkForUpdates(false), 8000);
+  setInterval(() => checkForUpdates(false), 4 * 60 * 60 * 1000);
+}
+function checkForUpdates(manual) {
+  if (!updater) {
+    if (manual) sendUpdate({ state: 'dev', current: app.getVersion() });
+    return;
+  }
+  manualCheck = manual;
+  if (manual) sendUpdate({ state: 'checking' });
+  updater.checkForUpdates().catch(() => { /* reported through the error event */ });
+}
+ipcMain.handle('app-version', () => app.getVersion());
+ipcMain.on('update-check', () => checkForUpdates(true));
+ipcMain.on('update-download', () => {
+  if (updater) updater.downloadUpdate().catch(() => { /* reported through the error event */ });
+});
+ipcMain.on('update-install', () => {
+  // the page has already asked about unsaved work; install silently and reopen DocDoc
+  if (!updater) return;
+  forceClose = true;
+  updater.quitAndInstall(true, true);
+});
+
 app.whenReady().then(() => {
   const { session } = require('electron');
   const allowed = new Set(['local-fonts', 'clipboard-read', 'clipboard-sanitized-write']);
@@ -486,5 +557,6 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler((_wc, perm) => allowed.has(perm));
   buildMenu();
   createWindow();
+  setupUpdates();
 });
 app.on('window-all-closed', () => app.quit());

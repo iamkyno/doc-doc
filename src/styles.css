@@ -246,3 +246,13 @@ input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4
 /* find matches */
 ::highlight(find-all) { background-color: #fff1a8; }
 ::highlight(find-current) { background-color: #ff9632; color: #000; }
+
+/* updates */
+.version-info { padding: 0 10px; color: #555; line-height: 1.5; }
+.version-info span:first-child { font-weight: 600; color: #222; }
+#updateState { cursor: pointer; }
+#updateState:empty { display: none; }
+#modal .update-notes { white-space: pre-wrap; max-height: 260px; overflow: auto; background: #f6f8fb; border: 1px solid #e1e6ee; border-radius: 4px; padding: 8px 10px; margin: 6px 0 4px; font-size: 12.5px; line-height: 1.45; }
+#modal .update-icon { font-size: 30px; float: left; margin: 0 12px 4px 0; }
+#modal .update-body { overflow: hidden; }
+#modal .update-body + * { clear: both; }

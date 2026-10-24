@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('api', {
   openPath: (p) => ipcRenderer.invoke('open-path', p),
   pathForFile: (f) => webUtils.getPathForFile(f),
   fetchImage: (url) => ipcRenderer.invoke('fetch-image', url),
+  appVersion: () => ipcRenderer.invoke('app-version'),
+  onUpdate: (cb) => ipcRenderer.on('update-status', (_e, info) => cb(info)),
+  checkForUpdates: () => ipcRenderer.send('update-check'),
+  downloadUpdate: () => ipcRenderer.send('update-download'),
+  installUpdate: () => ipcRenderer.send('update-install'),
   closeNow: () => ipcRenderer.send('close-now'),
   onOpenPath: (cb) => ipcRenderer.on('open-path-result', (_e, r) => cb(r)),
 });

@@ -1,9 +1,11 @@
 name: Build Windows installer
 
+# Every push builds the installer. A new GitHub Release (which installed copies of
+# DocDoc pick up as an update) is only created when package.json has a new version.
+
 on:
   push:
     branches: [master, main]
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -28,22 +30,41 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Upload installer
+      - name: Upload build
         uses: actions/upload-artifact@v4
         with:
           name: DocDoc-Setup
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
 
       - name: Read version
         id: ver
         shell: bash
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: Publish to Releases
+      # Never replace a version people may already be updating to.
+      - name: Is this version already released?
+        id: exists
+        shell: bash
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ steps.ver.outputs.version }}" > /dev/null; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "v${{ steps.ver.outputs.version }} is already released. Raise the version in package.json to publish an update."
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish release (users get the update)
+        if: steps.exists.outputs.released == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           name: DocDoc ${{ steps.ver.outputs.version }}
-          files: dist/*.exe
-          body: |
-            Download **DocDoc-Setup-${{ steps.ver.outputs.version }}.exe** below and run it to install DocDoc on Windows.
+          body_path: RELEASE_NOTES.md
+          make_latest: true
+          files: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml

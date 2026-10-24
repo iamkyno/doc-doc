@@ -1,7 +1,7 @@
 {
   "name": "doc-doc",
   "productName": "DocDoc",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "A simple, friendly document editor for Windows",
   "main": "main.js",
   "author": "iamkyno",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@turbodocx/html-to-docx": "^1.23.1",
+    "electron-updater": "^6.8.11",
     "jszip": "^3.10.2",
     "mammoth": "^1.13.0",
     "marked": "^18.1.1"
@@ -97,6 +98,14 @@
       "createStartMenuShortcut": true,
       "shortcutName": "DocDoc",
       "artifactName": "DocDoc-Setup-${version}.exe"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "iamkyno",
+        "repo": "doc-doc",
+        "releaseType": "release"
+      }
+    ]
   }
 }

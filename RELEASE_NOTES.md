@@ -1,0 +1,2 @@
+- DocDoc now updates itself: when a new version is out you'll see a popup, can download it in the background and restart to finish.
+- Help → Check for Updates… and File → Updates to check any time.
