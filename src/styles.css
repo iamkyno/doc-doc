@@ -200,3 +200,35 @@ input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4
   #editor .page-break { border: 0; margin: 0; }
   #editor .page-break::after { display: none; }
 }
+
+/* ---------- Contextual "Shape Format" tab ---------- */
+.tab.context { color: #ffe08a; font-weight: 600; }
+.tab.context.active { color: #9c5700; border-top: 3px solid #f0a30a; }
+.tab[hidden] { display: none; }
+.panel[data-panel="format"] .group.off { opacity: .4; pointer-events: none; }
+.panel input[type=number] { height: 24px; border: 1px solid #c4c4c4; border-radius: 2px; font: inherit; padding: 0 4px; }
+
+/* simple vertical menus (Borders) */
+.dropdown.open .menu.list { display: flex; flex-direction: column; min-width: 190px; padding: 4px; }
+.menu.list button { justify-content: flex-start; width: 100%; }
+
+/* Shapes gallery with sections */
+.dropdown.open .menu.shapes { display: block; width: 420px; max-height: 70vh; overflow-y: auto; }
+.menu.shapes .sec { font: 600 11px "Segoe UI", sans-serif; color: #2b579a; padding: 4px 2px; }
+.menu.shapes .shape-grid { display: grid; grid-template-columns: repeat(9, 40px); gap: 3px; margin-bottom: 6px; }
+.menu.shapes .exam-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.panel .menu.shapes .exam-grid button {
+  width: auto; height: auto; min-height: 46px; justify-content: flex-start; gap: 8px; padding: 4px 6px;
+  border: 1px solid #e3e3e3; text-align: left; white-space: normal; line-height: 1.2;
+}
+.menu.shapes .exam-grid .prev { flex: none; width: 46px; height: 34px; display: flex; align-items: center; justify-content: center; }
+.menu.shapes .exam-grid .prev svg { width: 46px; height: 34px; }
+.menu.shapes .exam-grid small { display: block; color: #777; font-size: 10.5px; }
+
+/* exam paper items */
+#editor .tickbox { cursor: pointer; font-family: "Segoe UI Symbol", "Segoe UI", sans-serif; font-size: 1.2em; padding: 0 2px; }
+#editor .textbox.exam { min-width: 0; min-height: 0; }
+#editor .para-box { border: 1px solid #000; padding: 6px 8px; margin: 0 0 8pt; }
+#editor .para-box > :last-child { margin-bottom: 0; }
+#editor table.exam td { min-width: 0; }
+#editor .tb-body { outline: none; min-height: 1em; cursor: text; }

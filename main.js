@@ -148,6 +148,42 @@ async function readDocument(filePath) {
   return { filePath, html };
 }
 
+// Tidy tables in the generated Word XML:
+//  - alignment per table (the converter centres them all), in document order
+//  - no extra space after paragraphs inside cells, so mark boxes and grids stay compact
+function fixTables(xml, aligns) {
+  let n = 0;
+  xml = xml.replace(/<w:tbl>(\s*)<w:tblPr>([\s\S]*?)<\/w:tblPr>/g, (m, ws, inner) => {
+    const jc = aligns[n++] || 'left';
+    const body = /<w:jc [^>]*\/>/.test(inner) ? inner.replace(/<w:jc [^>]*\/>/, `<w:jc w:val="${jc}"/>`) : inner + `<w:jc w:val="${jc}"/>`;
+    return `<w:tbl>${ws}<w:tblPr>${body}</w:tblPr>`;
+  });
+  // Column grid: use the real cell widths (the converter writes equal, fractional columns).
+  xml = xml.replace(/<w:tblGrid>([\s\S]*?)<\/w:tblGrid>([\s\S]*?)<\/w:tbl>/g, (m, grid, rest) => {
+    if (rest.includes('<w:tbl>')) return m; // nested table: leave as is
+    const n = (grid.match(/<w:gridCol /g) || []).length;
+    const rows = rest.split('<w:tr>').slice(1);
+    for (const row of rows) {
+      const cells = row.split('<w:tc>').slice(1);
+      if (cells.length !== n || cells.some((c) => /<w:gridSpan /.test(c))) continue;
+      const widths = cells.map((c) => (c.match(/<w:tcW w:w="([\d.]+)"/) || [])[1]);
+      if (widths.some((w) => !w)) continue;
+      const cols = widths.map((w) => `<w:gridCol w:w="${Math.round(+w)}"/>`).join('');
+      return `<w:tblGrid>${cols}</w:tblGrid>${rest}</w:tbl>`;
+    }
+    return m;
+  });
+  // Word expects whole numbers for widths.
+  xml = xml.replace(/w:w="(\d+)\.\d+"/g, (m, i) => `w:w="${i}"`);
+  let depth = 0;
+  return xml.replace(/<w:tc>|<\/w:tc>|<w:spacing ([^>]*?)\/>/g, (m, attrs) => {
+    if (m === '<w:tc>') { depth++; return m; }
+    if (m === '</w:tc>') { depth--; return m; }
+    if (depth > 0 && !/w:after=/.test(attrs)) return `<w:spacing w:after="0" ${attrs}/>`;
+    return m;
+  });
+}
+
 // Fallback reader if the high-fidelity renderer fails on a file.
 ipcMain.handle('docx-basic', async (_e, bytes) => {
   const mammoth = require('mammoth');
@@ -325,7 +361,7 @@ ipcMain.handle('pick-image', async () => {
   return `data:${mime};base64,${fs.readFileSync(p).toString('base64')}`;
 });
 
-ipcMain.handle('save-file', async (_e, { filePath, suggestedName, html, editorHtml, text, saveAs, page }) => {
+ipcMain.handle('save-file', async (_e, { filePath, suggestedName, html, editorHtml, text, saveAs, page, tableAlign }) => {
   let target = filePath;
   if (!target || saveAs) {
     const r = await dialog.showSaveDialog(win, {
@@ -359,6 +395,7 @@ ipcMain.handle('save-file', async (_e, { filePath, suggestedName, html, editorHt
       });
       const JSZip = require('jszip');
       const zip = await JSZip.loadAsync(Buffer.from(buf));
+      zip.file('word/document.xml', fixTables(await zip.file('word/document.xml').async('string'), tableAlign || []));
       const docXml = await zip.file('word/document.xml').async('nodebuffer');
       zip.file(EMBED_PART, JSON.stringify({ check: sha1(docXml), html: editorHtml || html, page }), { createFolders: false });
       const ct = await zip.file('[Content_Types].xml').async('string');

@@ -26,6 +26,7 @@
     <button class="tab" data-tab="insert">Insert</button>
     <button class="tab" data-tab="layout">Layout</button>
     <button class="tab" data-tab="view">View</button>
+    <button class="tab context" data-tab="format" id="formatTab" hidden>Shape Format</button>
     <span class="spacer"></span>
     <span id="docname">Document1</span>
   </nav>
@@ -115,6 +116,15 @@
             <button data-cmd="shading">▧<span class="bar" id="shBar"></span></button>
             <input type="color" id="shColor" value="#dbe5f1">
           </span>
+          <div class="dropdown">
+            <button data-dd="borderMenu" title="Borders">▢▾</button>
+            <div class="menu list" id="borderMenu">
+              <button data-border="bottom">▁ Bottom Border</button>
+              <button data-border="top">▔ Top Border</button>
+              <button data-border="box">▢ Box Around Paragraphs</button>
+              <button data-border="none">⊘ No Border</button>
+            </div>
+          </div>
         </div>
       </div>
       <label>Paragraph</label>
@@ -204,19 +214,62 @@
       <label class="inline">Page Color <input type="color" id="pageColor" value="#ffffff"></label>
     </div><label>Page Background</label></div>
 
-    <div class="group" id="objGroup"><div class="col">
+  </section>
+
+  <!-- SHAPE FORMAT (shown while a text box, shape or picture is selected) -->
+  <section class="panel" data-panel="format">
+    <div class="group" id="fmtFillGroup"><div class="col">
+      <label class="inline">Fill colour <input type="color" id="fmtFill" value="#ffffff"></label>
+      <button data-fmt="nofill" title="No Fill">⊘ No Fill</button>
+      <label class="inline" title="Fill transparency">Transparent <input type="range" id="fmtAlpha" min="0" max="100" step="5" value="0" style="width:70px"></label>
+    </div><label>Fill</label></div>
+
+    <div class="group"><div class="col">
+      <label class="inline">Colour <input type="color" id="fmtLine" value="#000000"></label>
+      <label class="inline">Weight
+        <select id="fmtWeight">
+          <option value="0">No border</option><option value="0.5">½ pt</option><option value="0.75">¾ pt</option><option value="1">1 pt</option>
+          <option value="1.5">1½ pt</option><option value="2.25">2¼ pt</option><option value="3">3 pt</option><option value="4.5">4½ pt</option><option value="6">6 pt</option>
+        </select></label>
+      <label class="inline">Style
+        <select id="fmtDash">
+          <option value="solid">────── Solid</option><option value="dashed">─ ─ ─ Dashed</option><option value="dotted">······· Dotted</option>
+          <option value="long">── ── Long dash</option><option value="double">══════ Double</option>
+        </select></label>
+    </div><label>Border</label></div>
+
+    <div class="group"><div class="col">
+      <label class="inline">Corners
+        <select id="fmtRadius"><option value="0">Square</option><option value="4">Slightly rounded</option><option value="12">Rounded</option><option value="999">Round / pill</option></select></label>
+      <label class="inline" style="justify-content:flex-start"><input type="checkbox" id="fmtShadow"> Shadow</label>
+      <label class="inline">Rotate
+        <select id="fmtRotate"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+    </div><label>Effects</label></div>
+
+    <div class="group" id="fmtTextGroup"><div class="col">
+      <label class="inline">Inner margin
+        <select id="fmtPadding"><option value="0">None</option><option value="3">Narrow</option><option value="7">Normal</option><option value="14">Wide</option></select></label>
+      <label class="inline">Text position
+        <select id="fmtVAlign"><option value="flex-start">Top</option><option value="center">Middle</option><option value="flex-end">Bottom</option></select></label>
+    </div><label>Text Box</label></div>
+
+    <div class="group"><div class="col">
+      <label class="inline">Width <input type="number" id="fmtW" min="0.2" step="0.1" style="width:64px"> cm</label>
+      <label class="inline">Height <input type="number" id="fmtH" min="0.2" step="0.1" style="width:64px"> cm</label>
+    </div><label>Size</label></div>
+
+    <div class="group"><div class="col">
       <div class="row">
         <button data-obj="inline" title="In line with text">▭ In Line</button>
-        <button data-obj="left" title="Wrap left">◧ Wrap Left</button>
-        <button data-obj="right" title="Wrap right">◨ Wrap Right</button>
+        <button data-obj="left" title="Wrap text, box on the left">◧ Wrap Left</button>
+        <button data-obj="right" title="Wrap text, box on the right">◨ Wrap Right</button>
       </div>
       <div class="row">
         <button data-obj="front" title="Bring to Front">⬆ Front</button>
         <button data-obj="back" title="Send to Back">⬇ Back</button>
-        <label class="inline">Fill <input type="color" id="shapeFill" value="#4472c4"></label>
-        <label class="inline">Outline <input type="color" id="shapeStroke" value="#2f528f"></label>
+        <button data-obj="delete" title="Delete (Del)">🗑 Delete</button>
       </div>
-    </div><label>Arrange (select a picture or shape)</label></div>
+    </div><label>Arrange</label></div>
   </section>
 
   <!-- VIEW -->

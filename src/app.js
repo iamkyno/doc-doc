@@ -93,6 +93,7 @@
     api.setDirty && api.setDirty(state.dirty);
   }
   function markDirty() {
+    relayoutFloats();
     if (!state.dirty) {
       state.dirty = true;
       updateTitle();
@@ -710,14 +711,248 @@
     arrowLine: '<line x1="1" y1="50" x2="88" y2="50" fill="none"/><polygon points="99,50 85,42 85,58" data-solid="1"/>',
   };
   const shapeMenu = $('#shapeMenu');
+  function menuSection(title, cls) {
+    const h = document.createElement('div');
+    h.className = 'sec';
+    h.textContent = title;
+    const g = document.createElement('div');
+    g.className = cls;
+    shapeMenu.append(h, g);
+    return g;
+  }
+  const shapeGrid = menuSection('Shapes', 'shape-grid');
   Object.keys(SHAPES).forEach((k) => {
     const b = document.createElement('button');
     b.title = k;
     b.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><g fill="#cfd9ec" stroke="#2f528f" stroke-width="6">${SHAPES[k]}</g></svg>`;
     b.addEventListener('mousedown', (e) => e.preventDefault());
     b.addEventListener('click', () => { closeDropdowns(); insertShape(k); });
-    shapeMenu.appendChild(b);
+    shapeGrid.appendChild(b);
   });
+
+  /* ---------- Exam paper boxes ---------- */
+  const EXAM = [
+    { id: 'markBox', name: 'Mark box', hint: 'Empty box at the right margin',
+      icon: '<rect x="12" y="4" width="26" height="26" fill="#fff" stroke="#000" stroke-width="2"/>' },
+    { id: 'splitBox', name: 'Mark out of', hint: 'Box with space and "/ 5"',
+      icon: '<rect x="3" y="7" width="40" height="20" fill="#fff" stroke="#000" stroke-width="2"/><line x1="23" y1="7" x2="23" y2="27" stroke="#000" stroke-width="2"/><text x="26" y="22" font-size="11" font-family="Arial">5</text>' },
+    { id: 'allocation', name: 'Mark allocation', hint: '"(5)" at the right margin',
+      icon: '<text x="9" y="23" font-size="15" font-family="Arial">(5)</text>' },
+    { id: 'markCircle', name: 'Mark circle', hint: 'Round box for a score',
+      icon: '<circle cx="23" cy="17" r="13" fill="#fff" stroke="#000" stroke-width="2"/>' },
+    { id: 'totalBox', name: 'Total box', hint: 'TOTAL: ____ / 100',
+      icon: '<rect x="2" y="8" width="42" height="18" fill="#fff" stroke="#000" stroke-width="2.5"/><text x="5" y="21" font-size="8" font-weight="bold" font-family="Arial">TOTAL</text>' },
+    { id: 'tickRow', name: 'Tick boxes', hint: 'A  B  C  D, click to tick',
+      icon: '<rect x="2" y="11" width="10" height="10" fill="#fff" stroke="#000" stroke-width="1.5"/><rect x="18" y="11" width="10" height="10" fill="#fff" stroke="#000" stroke-width="1.5"/><path d="M19 16 l3 3 l5 -7" stroke="#000" stroke-width="1.6" fill="none"/><rect x="34" y="11" width="10" height="10" fill="#fff" stroke="#000" stroke-width="1.5"/>' },
+    { id: 'answerLines', name: 'Answer lines', hint: 'Lined space for written answers',
+      icon: '<g stroke="#000" stroke-width="1.5"><line x1="3" y1="9" x2="43" y2="9"/><line x1="3" y1="17" x2="43" y2="17"/><line x1="3" y1="25" x2="43" y2="25"/></g>' },
+    { id: 'dottedLines', name: 'Dotted lines', hint: 'Dotted answer lines',
+      icon: '<g stroke="#000" stroke-width="1.6" stroke-dasharray="1.5 2.5"><line x1="3" y1="9" x2="43" y2="9"/><line x1="3" y1="17" x2="43" y2="17"/><line x1="3" y1="25" x2="43" y2="25"/></g>' },
+    { id: 'answerBox', name: 'Answer box', hint: 'Large bordered space',
+      icon: '<rect x="3" y="4" width="40" height="26" fill="#fff" stroke="#000" stroke-width="2"/>' },
+    { id: 'examinerTable', name: "Examiner's use table", hint: 'Question / Max / Mark + Total',
+      icon: '<g fill="#fff" stroke="#000" stroke-width="1.3"><rect x="4" y="3" width="38" height="28"/><line x1="4" y1="9" x2="42" y2="9"/><line x1="4" y1="15" x2="42" y2="15"/><line x1="4" y1="21" x2="42" y2="21"/><line x1="4" y1="26" x2="42" y2="26"/><line x1="17" y1="9" x2="17" y2="31"/><line x1="29" y1="9" x2="29" y2="31"/></g>' },
+    { id: 'candidateBox', name: 'Candidate details', hint: 'Name, number boxes, class, date',
+      icon: '<g fill="#fff" stroke="#000" stroke-width="1.3"><rect x="3" y="4" width="40" height="26"/><line x1="3" y1="13" x2="43" y2="13"/><line x1="3" y1="22" x2="43" y2="22"/><line x1="17" y1="4" x2="17" y2="30"/></g><g stroke="#000" stroke-width="1"><line x1="23" y1="13" x2="23" y2="22"/><line x1="29" y1="13" x2="29" y2="22"/><line x1="35" y1="13" x2="35" y2="22"/></g>' },
+    { id: 'instructionBox', name: 'Instructions box', hint: 'Boxed "Instructions" panel',
+      icon: '<rect x="3" y="4" width="40" height="26" fill="#f2f2f2" stroke="#000" stroke-width="1.8"/><text x="5" y="12" font-size="5" font-weight="bold" font-family="Arial">INSTRUCTIONS</text><g stroke="#666"><line x1="6" y1="19" x2="38" y2="19"/><line x1="6" y1="24" x2="32" y2="24"/></g>' },
+  ];
+  const examGrid = menuSection('Exam paper', 'exam-grid');
+  EXAM.forEach((x) => {
+    const b = document.createElement('button');
+    b.title = x.hint;
+    b.innerHTML = `<span class="prev"><svg viewBox="0 0 46 34">${x.icon}</svg></span><span>${x.name}<small>${x.hint}</small></span>`;
+    b.addEventListener('mousedown', (e) => e.preventDefault());
+    b.addEventListener('click', () => { closeDropdowns(); insertExam(x.id); });
+    examGrid.appendChild(b);
+  });
+
+  // Vertical position (editor coordinates) of the caret line, for boxes that sit at the right margin.
+  function caretTop() {
+    const r = state.savedRange;
+    if (r && inEditor(r.startContainer)) {
+      let rect = r.getBoundingClientRect();
+      if (!rect.height) {
+        const el = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement;
+        rect = el.getBoundingClientRect();
+      }
+      if (rect.height) return Math.max(0, (rect.top - editor.getBoundingClientRect().top) / state.zoom);
+    }
+    return visibleTop();
+  }
+  function floatBox(html, { w, h, left, top, style = '' }) {
+    const el = document.createElement('div');
+    el.className = 'textbox floating exam';
+    el.contentEditable = 'false';
+    el.style.cssText = `left:${left}px;top:${top}px;width:${w}px;${h ? `min-height:${h}px;` : ''}${style}`;
+    el.innerHTML = textBoxHtml(html);
+    placeFloating(el);
+    reanchor(el);
+    selectObj(el, true);
+    markDirty();
+    return el;
+  }
+  const B = '1.5px solid #000000';
+  const cell = (content, extra = '') => `<td style="border:${B};padding:3px 6px;${extra}">${content || '<br>'}</td>`;
+  function linesTable(n, dotted) {
+    const line = dotted ? '1.5px dotted #000000' : '1px solid #000000';
+    let rows = '';
+    for (let i = 0; i < n; i++) rows += `<tr style="height:30px"><td style="border:none;border-bottom:${line};height:30px;padding:0 2px;vertical-align:bottom"><br></td></tr>`;
+    return `<table class="exam" style="width:100%;border-collapse:collapse;margin:0 0 8pt"><tbody>${rows}</tbody></table><p><br></p>`;
+  }
+  function insertExam(id) {
+    const right = (w) => Math.max(0, editor.clientWidth - w);
+    const centered = 'display:flex;flex-direction:column;justify-content:center;';
+    switch (id) {
+      case 'markBox':
+        floatBox('<p style="text-align:center;margin:0"><br></p>', { w: 44, h: 44, left: right(44), top: caretTop(), style: `padding:0;border:${B};${centered}` });
+        break;
+      case 'splitBox':
+        floatBox(`<table style="border-collapse:collapse;width:100%;height:100%;margin:0"><tbody><tr>${cell('', 'width:50%;height:34px;text-align:center;vertical-align:middle')}${cell('5', 'width:50%;text-align:center;vertical-align:middle;font-weight:bold')}</tr></tbody></table>`,
+          { w: 84, h: 36, left: right(84), top: caretTop(), style: 'padding:0;border:none;background:transparent' });
+        break;
+      case 'allocation':
+        floatBox('<p style="text-align:right;margin:0">(5)</p>', { w: 50, left: right(50), top: caretTop(), style: 'padding:0;border:none;background:transparent' });
+        break;
+      case 'markCircle':
+        floatBox('<p style="text-align:center;margin:0"><br></p>', { w: 52, h: 52, left: right(52), top: caretTop(), style: `padding:0;border:${B};border-radius:999px;${centered}` });
+        break;
+      case 'totalBox':
+        floatBox('<p style="margin:0"><b>TOTAL:</b>&nbsp;&nbsp;_______ / 100</p>', { w: 200, h: 34, left: right(200), top: caretTop(), style: `padding:4px 10px;border:2.5px solid #000000;${centered}` });
+        break;
+      case 'tickRow':
+        exec('insertHTML', ['A', 'B', 'C', 'D'].map((l) => `<span class="tickbox" contenteditable="false">☐</span>&nbsp;${l}`).join('&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;') + '&nbsp;');
+        break;
+      case 'answerLines':
+        insertBlock(linesTable(5, false));
+        break;
+      case 'dottedLines':
+        insertBlock(linesTable(5, true));
+        break;
+      case 'answerBox':
+        insertBlock(`<table class="exam" style="width:100%;border-collapse:collapse;margin:0 0 8pt"><tbody><tr><td style="border:${B};height:160px;padding:6px;vertical-align:top"><br></td></tr></tbody></table><p><br></p>`);
+        break;
+      case 'examinerTable': {
+        let rows = '';
+        const cw = Math.round(editor.clientWidth * 0.55 / 3);
+        const c3 = (t, extra = '') => cell(t, `width:${cw}px;text-align:center;${extra}`);
+        for (let i = 1; i <= 5; i++) rows += `<tr>${c3(String(i))}${c3('')}${c3('')}</tr>`;
+        insertBlock(`<table class="exam" style="width:${cw * 3}px;margin:0 0 8pt auto;border-collapse:collapse"><tbody>
+<tr><td colspan="3" style="border:${B};padding:4px 6px;text-align:center;font-weight:bold;background:#d9d9d9">FOR EXAMINER'S USE ONLY</td></tr>
+<tr>${c3('<b>Question</b>', 'background:#f2f2f2')}${c3('<b>Max</b>', 'background:#f2f2f2')}${c3('<b>Mark</b>', 'background:#f2f2f2')}</tr>
+${rows}
+<tr>${c3('<b>TOTAL</b>', 'background:#f2f2f2')}${c3('')}${c3('')}</tr>
+</tbody></table><p><br></p>`);
+        break;
+      }
+      case 'candidateBox': {
+        // one table, no nesting: the number row has 10 small boxes, other rows span them
+        // fixed pixel widths: Word ignores percentage widths on cells
+        const W = editor.clientWidth;
+        const lw = Math.round(W * 0.3);
+        const bw = Math.floor((W - lw) / 10);
+        const label = (t) => cell(`<b>${t}</b>`, `width:${lw}px;background:#f2f2f2`);
+        const wide = `<td colspan="10" style="border:${B};padding:3px 6px;width:${bw * 10}px"><br></td>`;
+        const boxes = Array.from({ length: 10 }, () => `<td style="border:${B};width:${bw}px;height:26px;padding:0;text-align:center"><br></td>`).join('');
+        insertBlock(`<table class="exam" style="width:100%;border-collapse:collapse;margin:0 0 8pt"><tbody>
+<tr>${label('NAME')}${wide}</tr>
+<tr>${label('SURNAME')}${wide}</tr>
+<tr style="height:28px">${label('CANDIDATE NUMBER')}${boxes}</tr>
+<tr>${label('CLASS / GRADE')}${wide}</tr>
+<tr>${label('DATE')}${wide}</tr>
+</tbody></table><p><br></p>`);
+        break;
+      }
+      case 'instructionBox':
+        insertBlock(`<div class="para-box" style="border:${B};padding:6px 10px;background:#f2f2f2"><p style="margin:0 0 4pt"><b>INSTRUCTIONS AND INFORMATION</b></p><ol style="margin:0"><li>Answer ALL the questions.</li><li>Write neatly and legibly.</li><li>Show ALL calculations.</li></ol></div><p><br></p>`);
+        break;
+      default:
+    }
+  }
+
+  // Click a tick box to cycle: empty, ticked, crossed.
+  editor.addEventListener('click', (e) => {
+    const t = e.target.closest && e.target.closest('.tickbox');
+    if (!t) return;
+    t.textContent = { '☐': '☑', '☑': '☒', '☒': '☐' }[t.textContent] || '☐';
+    markDirty();
+  });
+
+  // Put a floating object in the document right after the paragraph holding the caret,
+  // so it stays with that paragraph (and exports next to it) instead of piling up at the end.
+  function placeFloating(el) {
+    const r = state.savedRange;
+    let n = r && inEditor(r.startContainer) ? r.startContainer : null;
+    while (n && n.parentNode !== editor) n = n.parentNode;
+    if (n && n !== editor && !(n.classList && n.classList.contains('floating'))) n.after(el);
+    else editor.appendChild(el);
+  }
+  // Floating objects follow their paragraph: we store their offset from it (data-dy)
+  // and re-position them whenever the text above changes, like Word's anchors.
+  // Each floating object remembers its paragraph by id (data-anchor -> data-aid).
+  let aidSeq = 0;
+  function newAid() {
+    return 'a' + Date.now().toString(36) + (aidSeq++).toString(36);
+  }
+  function prevBlock(el) {
+    let a = el.previousElementSibling;
+    while (a && a.classList.contains('floating')) a = a.previousElementSibling;
+    return a;
+  }
+  function anchorOf(el) {
+    const id = el.dataset.anchor;
+    if (id) {
+      for (const b of editor.children) if (b.dataset.aid === id && !b.classList.contains('floating')) return b;
+    }
+    return prevBlock(el);
+  }
+  function reanchor(el) {
+    if (!el || !el.classList.contains('floating') || el.parentNode !== editor) return;
+    const top = parseFloat(el.style.top) || 0;
+    let anchor = null;
+    for (const b of editor.children) {
+      if (b.classList.contains('floating')) continue;
+      if (b.offsetTop <= top + 4) anchor = b;
+      else break;
+    }
+    if (anchor) {
+      if (!anchor.dataset.aid) anchor.dataset.aid = newAid();
+      el.dataset.anchor = anchor.dataset.aid;
+      if (prevBlock(el) !== anchor && !el.contains(document.activeElement)) anchor.after(el);
+      el.dataset.dy = String(Math.round(top - anchor.offsetTop));
+    } else {
+      delete el.dataset.anchor;
+      el.dataset.dy = String(Math.round(top));
+    }
+  }
+  function relayoutFloats() {
+    // Splitting a paragraph copies its id to the new half. The first half with text keeps it
+    // (Enter at the start of a question leaves the box with the question, not the blank line).
+    const groups = new Map();
+    for (const b of editor.children) {
+      const id = b.dataset.aid;
+      if (!id || b.classList.contains('floating')) continue;
+      if (!groups.has(id)) groups.set(id, []);
+      groups.get(id).push(b);
+    }
+    for (const list of groups.values()) {
+      if (list.length < 2) continue;
+      const keep = list.find((b) => b.textContent.trim()) || list[0];
+      list.forEach((b) => { if (b !== keep) delete b.dataset.aid; });
+    }
+    for (const el of editor.children) {
+      if (!el.classList.contains('floating') || el.dataset.dy == null) continue;
+      const a = anchorOf(el);
+      if (a && !a.dataset.aid) a.dataset.aid = newAid();
+      if (a) el.dataset.anchor = a.dataset.aid;
+      const top = Math.max(0, (a ? a.offsetTop : 0) + (+el.dataset.dy));
+      if (Math.round(parseFloat(el.style.top) || 0) !== Math.round(top)) el.style.top = Math.round(top) + 'px';
+    }
+  }
+  // Text boxes: a non-editable frame with its own editable body, so the caret can't wander in.
+  function textBoxHtml(inner) {
+    return `<div class="tb-body" contenteditable="true">${inner}</div>`;
+  }
 
   let insertCount = 0;
   function visibleTop() {
@@ -732,8 +967,8 @@
     return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><g fill="${isLine ? 'none' : fill}" stroke="${stroke}" stroke-width="2" vector-effect="non-scaling-stroke">${SHAPES[kind].replace(/<(\w+)/g, '<$1 vector-effect="non-scaling-stroke"')}</g></svg>`;
   }
   function insertShape(kind) {
-    const fill = $('#shapeFill').value;
-    const stroke = $('#shapeStroke').value;
+    const fill = '#4472c4';
+    const stroke = '#2f528f';
     const el = document.createElement('span');
     el.className = 'shape floating';
     el.contentEditable = 'false';
@@ -743,19 +978,22 @@
     el.style.cssText = `left:${60 + (insertCount % 6) * 24}px;top:${top}px;width:${isLine ? 160 : 140}px;height:${kind === 'arrowLine' ? 24 : isLine ? 100 : 110}px`;
     el.innerHTML = shapeSvg(kind, fill, stroke);
     $$('[data-solid]', el).forEach((p) => p.setAttribute('fill', stroke));
-    editor.appendChild(el);
-    selectObj(el);
+    placeFloating(el);
+    reanchor(el);
+    selectObj(el, true);
     markDirty();
   }
   function insertTextBox() {
     const el = document.createElement('div');
     el.className = 'textbox floating';
+    el.contentEditable = 'false';
     el.style.cssText = `left:60px;top:${visibleTop()}px;width:220px`;
-    el.innerHTML = '<p>Type your text here</p>';
-    editor.appendChild(el);
-    selectObj(el);
+    el.innerHTML = textBoxHtml('<p>Type your text here</p>');
+    placeFloating(el);
+    reanchor(el);
+    selectObj(el, true);
     const r = document.createRange();
-    r.selectNodeContents(el.firstChild);
+    r.selectNodeContents(el.querySelector('p'));
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(r);
@@ -775,18 +1013,26 @@
     if (target.tagName === 'IMG') return target;
     return target.closest('.shape, .textbox');
   }
-  function selectObj(el) {
-    if (state.selectedObj === el) return positionHandles();
+  function selectObj(el, justInserted) {
+    if (state.selectedObj === el) {
+      if (justInserted) showTab('format');
+      return positionHandles();
+    }
     if (state.selectedObj) state.selectedObj.classList.remove('selected-obj');
     state.selectedObj = el;
     if (el) el.classList.add('selected-obj');
-    $('#objGroup').classList.toggle('disabled', !el);
-    if (el && el.classList.contains('shape')) {
-      const g = el.querySelector('g');
-      if (g.getAttribute('fill') !== 'none') $('#shapeFill').value = toHex(g.getAttribute('fill'));
-      $('#shapeStroke').value = toHex(g.getAttribute('stroke'));
-    }
+    // Word-style contextual tab
+    const tab = $('#formatTab');
+    tab.hidden = !el;
+    if (el) {
+      syncFormat(el);
+      if (justInserted) showTab('format');
+    } else if (tab.classList.contains('active')) showTab('home');
     positionHandles();
+  }
+  function showTab(name) {
+    $$('.tab').forEach((x) => x.classList.toggle('active', x.dataset.tab === name));
+    $$('.panel').forEach((p) => p.classList.toggle('active', p.dataset.panel === name));
   }
   function positionHandles() {
     const el = state.selectedObj;
@@ -868,6 +1114,7 @@
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      if (moved && mode === 'move') reanchor(el);
       if (moved) markDirty();
     };
     document.addEventListener('mousemove', onMove);
@@ -879,6 +1126,12 @@
   function arrange(mode) {
     const el = state.selectedObj;
     if (!el) return;
+    if (mode === 'delete') {
+      el.remove();
+      selectObj(null);
+      markDirty();
+      return;
+    }
     if (mode === 'front' || mode === 'back') {
       el.style.zIndex = mode === 'front' ? 10 : 0;
       if (mode === 'back' && el.classList.contains('floating')) el.style.zIndex = 0;
@@ -888,6 +1141,8 @@
         // move a floating shape/text box back into the text flow at the caret
         el.classList.remove('floating');
         el.style.left = el.style.top = '';
+        delete el.dataset.dy;
+        delete el.dataset.anchor;
         const r = state.savedRange;
         if (r && !el.contains(r.startContainer)) {
           r.collapse(true);
@@ -901,25 +1156,181 @@
     positionHandles();
   }
   $$('[data-obj]').forEach((b) => b.addEventListener('click', () => arrange(b.dataset.obj)));
-  $('#shapeFill').addEventListener('input', (e) => {
-    const el = state.selectedObj;
-    if (!el) return;
-    if (el.classList.contains('shape')) {
+  /* ---------- Shape Format tab ---------- */
+  const PX_PER_CM = 96 / 2.54;
+  const DASH_CSS = { solid: 'solid', dashed: 'dashed', dotted: 'dotted', long: 'dashed', double: 'double' };
+  function objKind(el) {
+    if (!el) return null;
+    if (el.tagName === 'IMG') return 'img';
+    if (el.classList.contains('shape')) return 'shape';
+    return 'textbox';
+  }
+  function nearestOption(sel, v) {
+    let best = sel.options[0].value;
+    for (const o of sel.options) if (Math.abs(+o.value - v) < Math.abs(+best - v)) best = o.value;
+    sel.value = best;
+  }
+  function hexToRgba(hex, alpha) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
+  // Read the selected object's look into the Shape Format controls.
+  function syncFormat(el) {
+    const kind = objKind(el);
+    const cs = getComputedStyle(el);
+    const d = el.dataset;
+    $('#fmtFillGroup').classList.toggle('off', kind === 'img' || (kind === 'shape' && /line/i.test(d.shape)));
+    $('#fmtTextGroup').classList.toggle('off', kind !== 'textbox');
+    $('#fmtRadius').closest('label').style.opacity = kind === 'shape' ? '.4' : '';
+    $('#fmtRadius').disabled = kind === 'shape';
+    if (kind === 'shape') {
       const g = el.querySelector('g');
-      if (g.getAttribute('fill') !== 'none') g.setAttribute('fill', e.target.value);
-    } else if (el.classList.contains('textbox')) el.style.background = e.target.value;
-    markDirty();
-  });
-  $('#shapeStroke').addEventListener('input', (e) => {
+      if (g.getAttribute('fill') !== 'none') $('#fmtFill').value = toHex(g.getAttribute('fill'));
+      else if (d.fill) $('#fmtFill').value = d.fill;
+      $('#fmtLine').value = toHex(g.getAttribute('stroke') === 'none' ? d.line || '#000000' : g.getAttribute('stroke'));
+      $('#fmtWeight').value = d.weight || (g.getAttribute('stroke') === 'none' ? '0' : '1.5');
+      if (!d.weight) nearestOption($('#fmtWeight'), g.getAttribute('stroke') === 'none' ? 0 : (parseFloat(g.getAttribute('stroke-width')) || 2) * 0.75);
+    } else {
+      $('#fmtFill').value = d.fill || (TRANSPARENT_BG(cs.backgroundColor) ? '#ffffff' : toHex(cs.backgroundColor));
+      $('#fmtLine').value = toHex(cs.borderTopColor);
+      nearestOption($('#fmtWeight'), cs.borderTopStyle === 'none' ? 0 : parseFloat(cs.borderTopWidth) * 0.75);
+      nearestOption($('#fmtRadius'), parseFloat(cs.borderTopLeftRadius) || 0);
+    }
+    $('#fmtAlpha').value = d.alpha || 0;
+    $('#fmtDash').value = d.dash || (cs.borderTopStyle === 'dotted' ? 'dotted' : cs.borderTopStyle === 'dashed' ? 'dashed' : cs.borderTopStyle === 'double' ? 'double' : 'solid');
+    $('#fmtShadow').checked = d.shadow === '1';
+    $('#fmtRotate').value = d.rot || '0';
+    if (kind === 'textbox') {
+      nearestOption($('#fmtPadding'), parseFloat(cs.paddingLeft) || 0);
+      $('#fmtVAlign').value = cs.display === 'flex' ? cs.justifyContent.replace('normal', 'flex-start') : 'flex-start';
+      if (!$('#fmtVAlign').value) $('#fmtVAlign').value = 'flex-start';
+    }
+    const r = el.getBoundingClientRect();
+    $('#fmtW').value = (r.width / state.zoom / PX_PER_CM).toFixed(2);
+    $('#fmtH').value = (r.height / state.zoom / PX_PER_CM).toFixed(2);
+  }
+  function TRANSPARENT_BG(v) {
+    return !v || v === 'transparent' || v === 'rgba(0, 0, 0, 0)';
+  }
+  // Write the controls' values onto the selected object.
+  function applyFormat(changed) {
     const el = state.selectedObj;
     if (!el) return;
-    if (el.classList.contains('shape')) {
-      el.querySelector('g').setAttribute('stroke', e.target.value);
-      $$('[data-solid]', el).forEach((p) => p.setAttribute('fill', e.target.value));
-    } else if (el.classList.contains('textbox')) el.style.borderColor = e.target.value;
+    const kind = objKind(el);
+    const d = el.dataset;
+    if (changed === 'fill') delete d.nofill;
+    if (changed === 'nofill') d.nofill = '1';
+    if (changed === 'line' && $('#fmtWeight').value === '0') $('#fmtWeight').value = '1';
+    const fill = $('#fmtFill').value;
+    const alpha = +$('#fmtAlpha').value;
+    const line = $('#fmtLine').value;
+    const weight = +$('#fmtWeight').value;
+    const dash = $('#fmtDash').value;
+    d.fill = fill;
+    d.line = line;
+    d.weight = String(weight);
+    d.dash = dash;
+    if (alpha) d.alpha = String(alpha); else delete d.alpha;
+    d.shadow = $('#fmtShadow').checked ? '1' : '0';
+    const rot = +$('#fmtRotate').value;
+    d.rot = String(rot);
+    el.style.transform = rot ? `rotate(${rot}deg)` : '';
+
+    if (kind === 'shape') {
+      const g = el.querySelector('g');
+      const isLine = /line/i.test(d.shape);
+      if (!isLine) {
+        g.setAttribute('fill', d.nofill ? 'none' : fill);
+        if (alpha) g.setAttribute('fill-opacity', String(1 - alpha / 100)); else g.removeAttribute('fill-opacity');
+      }
+      const sw = weight * 4 / 3;
+      g.setAttribute('stroke', weight ? line : 'none');
+      g.setAttribute('stroke-width', String(sw || 1));
+      $$('[data-solid]', el).forEach((p) => p.setAttribute('fill', line));
+      const arr = { dashed: `${3 * sw} ${2 * sw}`, dotted: `${sw} ${1.6 * sw}`, long: `${8 * sw} ${3 * sw}` }[dash];
+      if (arr) g.setAttribute('stroke-dasharray', arr); else g.removeAttribute('stroke-dasharray');
+      g.setAttribute('stroke-linecap', dash === 'dotted' ? 'round' : 'butt');
+      el.style.filter = d.shadow === '1' ? 'drop-shadow(2px 3px 3px rgba(0,0,0,.35))' : '';
+    } else {
+      if (kind === 'textbox') {
+        el.style.background = d.nofill ? 'transparent' : (alpha ? hexToRgba(fill, 1 - alpha / 100) : fill);
+        el.style.padding = $('#fmtPadding').value + 'px';
+        const va = $('#fmtVAlign').value;
+        if (va === 'flex-start') {
+          el.style.display = el.style.flexDirection = el.style.justifyContent = '';
+        } else {
+          el.style.display = 'flex';
+          el.style.flexDirection = 'column';
+          el.style.justifyContent = va;
+        }
+      }
+      el.style.border = weight ? `${weight}pt ${DASH_CSS[dash]} ${line}` : 'none';
+      el.style.borderRadius = +$('#fmtRadius').value ? $('#fmtRadius').value + 'px' : '';
+      el.style.boxShadow = d.shadow === '1' ? '2px 3px 6px rgba(0,0,0,.35)' : '';
+    }
     markDirty();
-  });
-  $('#objGroup').classList.add('disabled');
+    positionHandles();
+  }
+  function applySize() {
+    const el = state.selectedObj;
+    if (!el) return;
+    const w = Math.max(0.2, parseFloat($('#fmtW').value) || 0) * PX_PER_CM;
+    const h = Math.max(0.2, parseFloat($('#fmtH').value) || 0) * PX_PER_CM;
+    el.style.width = Math.round(w) + 'px';
+    if (objKind(el) === 'textbox') el.style.minHeight = Math.round(h) + 'px';
+    else el.style.height = Math.round(h) + 'px';
+    markDirty();
+    positionHandles();
+  }
+  $('#fmtFill').addEventListener('input', () => applyFormat('fill'));
+  $('[data-fmt="nofill"]').addEventListener('click', () => applyFormat('nofill'));
+  $('#fmtAlpha').addEventListener('input', () => applyFormat('alpha'));
+  $('#fmtLine').addEventListener('input', () => applyFormat('line'));
+  ['#fmtWeight', '#fmtDash', '#fmtRadius', '#fmtShadow', '#fmtRotate', '#fmtPadding', '#fmtVAlign'].forEach((id) =>
+    $(id).addEventListener('change', () => applyFormat(id)));
+  ['#fmtW', '#fmtH'].forEach((id) => $(id).addEventListener('change', applySize));
+
+  /* ---------- Paragraph borders ---------- */
+  function topLevelBlocks(blocks) {
+    const out = [];
+    blocks.forEach((b) => {
+      let n = b;
+      while (n.parentElement && n.parentElement !== editor && !n.parentElement.classList.contains('textbox') && !n.parentElement.classList.contains('para-box') && !/^(TD|TH)$/.test(n.parentElement.tagName)) n = n.parentElement;
+      if (!out.includes(n)) out.push(n);
+    });
+    return out;
+  }
+  function paraBorder(kind) {
+    restoreSelection();
+    const blocks = selectedBlocks();
+    if (!blocks.length) return;
+    const line = '1px solid #000000';
+    if (kind === 'bottom' || kind === 'top') {
+      blocks.forEach((b) => {
+        const side = kind === 'bottom' ? 'Bottom' : 'Top';
+        b.style['border' + side] = line;
+        b.style['padding' + side] = '2px';
+      });
+    } else if (kind === 'box') {
+      const tops = topLevelBlocks(blocks);
+      if (tops[0].parentElement.classList.contains('para-box')) return;
+      const box = document.createElement('div');
+      box.className = 'para-box';
+      box.style.border = '1.5px solid #000000';
+      box.style.padding = '6px 8px';
+      tops[0].before(box);
+      tops.forEach((t) => box.appendChild(t));
+    } else {
+      blocks.forEach((b) => {
+        ['borderTop', 'borderBottom', 'borderLeft', 'borderRight', 'border', 'paddingTop', 'paddingBottom'].forEach((p) => (b.style[p] = ''));
+        if (!b.getAttribute('style')) b.removeAttribute('style');
+        const box = b.closest('.para-box');
+        if (box) box.replaceWith(...box.childNodes);
+      });
+    }
+    markDirty();
+  }
+  $$('[data-border]').forEach((b) => b.addEventListener('click', () => { closeDropdowns(); paraBorder(b.dataset.border); }));
 
   /* ================= Layout ================= */
   function applyPage() {
@@ -1169,7 +1580,7 @@
     if (e.key === 'F12') { e.preventDefault(); run('saveAs'); return; }
     if (e.altKey && e.shiftKey && !ctrl && k === 'd') { e.preventDefault(); run('date'); return; }
 
-    if (e.key === 'Tab' && document.activeElement === editor) {
+    if (e.key === 'Tab' && inEditor(document.activeElement)) {
       e.preventDefault();
       const el = anchorElement();
       const cell = el.closest('td,th');
@@ -1375,21 +1786,56 @@
     });
   }
   async function htmlForDocx() {
+    // tag objects so each copy can be matched to its on-screen original
+    const liveObjs = $$('.shape, .textbox, .para-box', editor);
+    liveObjs.forEach((e, i) => (e.dataset.xid = i));
     const clone = editor.cloneNode(true);
-    const live = $$('.shape', editor);
+    liveObjs.forEach((e) => delete e.dataset.xid);
+    const liveOf = (c) => liveObjs[+c.dataset.xid];
+    // Word has no free-floating boxes here: move each one next to the paragraph it sits beside.
+    const liveKids = Array.from(editor.children);
+    const cloneKids = Array.from(clone.children);
+    liveKids.forEach((el, i) => {
+      if (!el.classList.contains('floating')) return;
+      const top = el.offsetTop;
+      let anchor = -1;
+      liveKids.forEach((b, j) => {
+        if (!b.classList.contains('floating') && b.offsetTop <= top + 4) anchor = j;
+      });
+      if (anchor >= 0) cloneKids[anchor].after(cloneKids[i]);
+      else clone.prepend(cloneKids[i]);
+    });
     const cl = $$('.shape', clone);
     for (let i = 0; i < cl.length; i++) {
-      const png = await shapeToPng(live[i]);
+      const png = await shapeToPng(liveOf(cl[i]));
       const p = document.createElement('p');
       p.innerHTML = png;
       if (cl[i].classList.contains('floating')) cl[i].replaceWith(p);
       else cl[i].outerHTML = png;
     }
+    // Word export cannot read a <div> inside a table cell, so unwrap text box bodies.
+    $$('.tb-body', clone).forEach((b) => b.replaceWith(...b.childNodes));
+    // A box that only holds a table (e.g. "mark out of") exports as that table.
     $$('.textbox', clone).forEach((tb) => {
+      const kids = Array.from(tb.children);
+      if (kids.length === 1 && kids[0].tagName === 'TABLE') {
+        const t = kids[0];
+        t.style.width = tb.style.width;
+        t.style.height = '';
+        if (tb.classList.contains('floating') && parseFloat(tb.style.left) > editor.clientWidth / 2) t.style.marginLeft = 'auto';
+        tb.replaceWith(t);
+      }
+    });
+    // Text boxes and boxed paragraphs become one-cell tables in Word, keeping border and fill.
+    $$('.textbox, .para-box', clone).reverse().forEach((tb) => {
+      const cs = getComputedStyle(liveOf(tb));
+      const border = cs.borderTopStyle === 'none' ? 'none' : `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`;
+      const bg = TRANSPARENT_BG(cs.backgroundColor) ? '' : `background-color:${cs.backgroundColor};`;
       const t = document.createElement('table');
-      t.setAttribute('border', '1');
-      t.style.width = tb.style.width || '220px';
-      t.innerHTML = `<tbody><tr><td style="border:1px solid #000;padding:6px;${tb.style.background ? 'background:' + tb.style.background : ''}">${tb.innerHTML}</td></tr></tbody>`;
+      t.style.borderCollapse = 'collapse';
+      t.style.width = tb.classList.contains('para-box') ? '100%' : (tb.style.width || '220px');
+      if (tb.classList.contains('floating') && parseFloat(tb.style.left) > editor.clientWidth / 2) t.style.marginLeft = 'auto';
+      t.innerHTML = `<tbody><tr><td style="border:${border};padding:${cs.paddingTop} ${cs.paddingRight};${bg}vertical-align:top">${tb.innerHTML}</td></tr></tbody>`;
       tb.replaceWith(t);
     });
     $$('.page-break', clone).forEach((pb) => {
@@ -1404,9 +1850,21 @@
       }
     });
     $$('.selected-obj', clone).forEach((x) => x.classList.remove('selected-obj'));
-    $$('td', clone).forEach((td) => { if (!td.style.border) td.style.border = '1px solid #999999'; });
+    $$('td', clone).forEach((td) => { if (!/border/.test(td.getAttribute('style') || '')) td.style.border = '1px solid #999999'; });
     $$('[contenteditable]', clone).forEach((x) => x.removeAttribute('contenteditable'));
-    return clone.innerHTML;
+    $$('[data-xid]', clone).forEach((x) => x.removeAttribute('data-xid'));
+    // A lone <br> becomes an extra line in Word; empty blocks/cells are already one line tall.
+    $$('p,li,td,th,h1,h2,h3,h4,h5,h6', clone).forEach((el) => {
+      if (el.childNodes.length === 1 && el.firstChild.nodeName === 'BR') el.firstChild.remove();
+    });
+    // Table alignment for Word (the converter centres every table otherwise).
+    const tableAlign = $$('table', clone).map((t) => {
+      const l = t.style.marginLeft;
+      const r = t.style.marginRight;
+      if (l === 'auto' && r === 'auto') return 'center';
+      return l === 'auto' ? 'right' : 'left';
+    });
+    return { html: clone.innerHTML, tableAlign };
   }
   async function saveDoc(saveAs) {
     if (!api.saveFile) return false;
@@ -1421,7 +1879,7 @@
       filePath: state.filePath,
       suggestedName: state.suggestedName,
       saveAs,
-      html: isDocx ? await htmlForDocx() : clean.innerHTML,
+      ...(isDocx ? await htmlForDocx() : { html: clean.innerHTML }),
       editorHtml: clean.innerHTML,
       text: editor.innerText,
       page: {
