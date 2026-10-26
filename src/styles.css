@@ -298,3 +298,19 @@ input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid #c4
 #modal .rec-item small { display: block; color: #777; }
 #modal .rec-item button { height: 26px; border: 1px solid #bbb; background: #f4f4f4; border-radius: 3px; cursor: pointer; padding: 0 10px; }
 #modal .rec-item button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* equations from Word: full-size fractions like Word's "professional" layout */
+#editor math { math-style: normal; font-size: 1.05em; }
+#pageLayer .hf .hf-pic { vertical-align: middle; max-width: 100%; object-fit: contain; }
+#pageLayer .hf .l .hf-pic, #pageLayer .hf .c .hf-pic { margin-right: 6px; }
+#pageLayer .hf .r .hf-pic { margin-left: 6px; }
+#modal .hf-pics { margin: 4px 0 10px; display: grid; gap: 6px; }
+#modal .hf-pic-row { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+#modal .hf-pic-row .lbl { width: 108px; font-weight: 600; }
+#modal .hf-pic-row .thumb { width: 44px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border: 1px dashed #ccd; border-radius: 3px; font-size: 10px; color: #99a; background: #fafbfd; }
+#modal .hf-pic-row .thumb img { max-width: 100%; max-height: 100%; }
+#modal .hf-pic-row button { height: 26px; padding: 0 8px; }
+#modal .hf-pic-row select { height: 26px; }
+#modal .hf-pic-row .h { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+#modal .hf-pic-row .h input { width: 52px; height: 26px; margin: 0; padding: 0 4px; }
+#modal .hf-pic-row:not(.has) [data-act="remove"], #modal .hf-pic-row:not(.has) select, #modal .hf-pic-row:not(.has) .h { visibility: hidden; }

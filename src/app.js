@@ -194,8 +194,9 @@
     clearTimeout(hist.timer);
     hist.timer = null;
     const html = packHtml(editor.innerHTML);
-    const hf = JSON.stringify(state.hf);
+    let hf = JSON.stringify(state.hf);
     const cur = hist.stack[hist.idx];
+    if (cur && cur.hf === hf) hf = cur.hf; // one copy of a header picture, not one per step
     if (cur && cur.html === html && cur.hf === hf) {
       cur.sel = saveSel() || cur.sel;
       return;
@@ -1451,7 +1452,7 @@ ${rows}
     $('#fmtTextGroup').classList.toggle('off', kind !== 'textbox');
     $('#fmtRadius').closest('label').style.opacity = kind === 'shape' ? '.4' : '';
     $('#fmtRadius').disabled = kind === 'shape';
-    if (kind === 'shape') {
+    if (kind === 'shape' && el.querySelector('g')) {
       const g = el.querySelector('g');
       if (g.getAttribute('fill') !== 'none') $('#fmtFill').value = toHex(g.getAttribute('fill'));
       else if (d.fill) $('#fmtFill').value = d.fill;
@@ -1504,7 +1505,7 @@ ${rows}
     d.rot = String(rot);
     el.style.transform = rot ? `rotate(${rot}deg)` : '';
 
-    if (kind === 'shape') {
+    if (kind === 'shape' && el.querySelector('g')) {
       const g = el.querySelector('g');
       const isLine = /line/i.test(d.shape);
       if (!isLine) {
@@ -1994,7 +1995,9 @@ ${rows}
   function hasBlockKids(el) {
     for (const c of el.children) {
       if (isGap(c) || c.classList.contains('floating')) continue;
-      const d = getComputedStyle(c).display;
+      const cs = getComputedStyle(c);
+      if (cs.float !== 'none') continue; // a wrapped picture is not a line of its own
+      const d = cs.display;
       if (d === 'block' || d === 'table' || d === 'list-item' || d === 'flex' || d === 'flow-root') return true;
     }
     return false;
@@ -2032,7 +2035,17 @@ ${rows}
         const pos = startOfLine(el, lines[i]);
         return pos ? { inline: pos } : before(el, top);
       }
+      // the text fits but a wrapped picture hangs below the page: the paragraph moves with it
+      if (floatBottom(el) > limit + 0.5) return before(el, top);
       return null;
+    }
+    // bottom of pictures that text wraps around (they can reach below their paragraph)
+    function floatBottom(el) {
+      let b = -Infinity;
+      for (const f of el.querySelectorAll('.wrap-left, .wrap-right')) {
+        b = Math.max(b, Y(f.getBoundingClientRect().bottom) + (parseFloat(getComputedStyle(f).marginBottom) || 0));
+      }
+      return b;
     }
     function scan(start, nested) {
       for (let el = start; el; el = el.nextElementSibling) {
@@ -2040,7 +2053,7 @@ ${rows}
         const r = el.getBoundingClientRect();
         if (!r.height && el.tagName !== 'DIV') continue;
         const top = Y(r.top);
-        const bottom = Y(r.bottom);
+        const bottom = Math.max(Y(r.bottom), el.tagName === 'TABLE' ? -Infinity : floatBottom(el));
         if (!nested && el.classList.contains('page-break')) {
           // a manual page break: the next page starts right after it
           if (top < limit + 1 && !isGap(el.nextElementSibling)) return { after: el };
@@ -2152,15 +2165,38 @@ ${rows}
       .replace(/\{date\}/g, new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }))
       .replace(/\{title\}/g, docName().replace(/\.\w+$/, ''));
   }
+  // Header/footer pictures are drawn on every page, so share one decoded copy.
+  const picUrls = new Map();
+  function picUrl(src) {
+    let u = picUrls.get(src);
+    if (!u) {
+      try {
+        const [head, b64] = src.split(',');
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        u = URL.createObjectURL(new Blob([bytes], { type: (head.match(/data:([^;]+)/) || [])[1] || 'image/png' }));
+      } catch (_) { u = src; }
+      picUrls.set(src, u);
+    }
+    return u;
+  }
   function drawPages() {
     const g = pageGeom();
     const n = state.pageCount;
     const color = $('#pageColor').value || '#ffffff';
     let html = '';
     const row = (slots, top, kind, i) => {
-      const empty = !(slots.l || slots.c || slots.r);
+      const empty = !(slots.l || slots.c || slots.r || slots.img);
+      const cell = (k) => {
+        const text = escapeHtml(hfText(slots[k], i + 1, n));
+        const im = slots.img;
+        if (!im || im.slot !== k) return `<span class="${k}">${text}</span>`;
+        const pic = `<img class="hf-pic" alt="" src="${escapeAttr(picUrl(im.src))}" style="height:${Math.max(4, Math.min(im.h * MMPX, g.m - 6))}px">`;
+        return `<span class="${k}">${k === 'r' ? text + pic : pic + text}</span>`;
+      };
       return `<div class="hf ${kind}${empty ? ' empty' : ''}" data-kind="${kind}" data-hint="${kind === 'header' ? 'Double-click to add a header' : 'Double-click to add a footer'}" style="top:${top}px;width:${g.pw}px;height:${g.m}px;padding:0 ${g.m}px">`
-        + `<span class="l">${escapeHtml(hfText(slots.l, i + 1, n))}</span><span class="c">${escapeHtml(hfText(slots.c, i + 1, n))}</span><span class="r">${escapeHtml(hfText(slots.r, i + 1, n))}</span></div>`;
+        + cell('l') + cell('c') + cell('r') + '</div>';
     };
     for (let i = 0; i < n; i++) {
       const top = i * g.P;
@@ -2186,6 +2222,44 @@ ${rows}
   async function editHeaderFooter(focus) {
     const hf = state.hf;
     const inp = (id, v) => `<input id="${id}" value="${escapeAttr(v || '')}" placeholder="—">`;
+    // one picture (logo) each for the header and the footer
+    const pics = { header: hf.header.img ? { ...hf.header.img } : null, footer: hf.footer.img ? { ...hf.footer.img } : null };
+    const picRow = (kind) => `<div class="hf-pic-row" data-pic="${kind}"><span class="lbl">${kind === 'header' ? 'Header' : 'Footer'} picture</span>
+      <span class="thumb"></span><button type="button" data-act="choose">Choose…</button><button type="button" data-act="remove">Remove</button>
+      <select data-act="slot" title="Position"><option value="l">Left</option><option value="c">Centre</option><option value="r">Right</option></select>
+      <label class="h">Height <input type="number" data-act="h" min="3" max="100" step="1"> mm</label></div>`;
+    const showPic = (kind) => {
+      const row = $(`#modalBody [data-pic="${kind}"]`);
+      const im = pics[kind];
+      row.classList.toggle('has', !!im);
+      $('.thumb', row).innerHTML = im ? `<img src="${escapeAttr(im.src)}" alt="">` : 'None';
+      $('[data-act="slot"]', row).value = im ? im.slot : (kind === 'header' ? 'l' : 'c');
+      $('[data-act="h"]', row).value = im ? Math.round(im.h) : '';
+    };
+    const wirePicRow = (kind) => {
+      const row = $(`#modalBody [data-pic="${kind}"]`);
+      showPic(kind);
+      $('[data-act="choose"]', row).addEventListener('click', async () => {
+        const src = api.pickImage && (await api.pickImage());
+        if (!src) return;
+        const pic = await wordPicture(src);
+        if (!pic) { $('#saveState').textContent = 'That picture could not be used'; return; }
+        const maxH = Math.max(5, Math.min(15, state.page.marginMm - 6));
+        const h = Math.min(maxH, pic.h * 0.2646 || maxH);
+        pics[kind] = { slot: $('[data-act="slot"]', row).value, src: pic.src, h, w: (h * pic.w) / pic.h };
+        showPic(kind);
+      });
+      $('[data-act="remove"]', row).addEventListener('click', () => { pics[kind] = null; showPic(kind); });
+      $('[data-act="slot"]', row).addEventListener('change', (e) => { if (pics[kind]) pics[kind].slot = e.target.value; });
+      $('[data-act="h"]', row).addEventListener('change', (e) => {
+        const im = pics[kind];
+        const h = Math.max(3, Math.min(100, +e.target.value || 0));
+        if (!im || !h) return;
+        if (im.w) im.w = (im.w * h) / im.h;
+        im.h = h;
+        e.target.value = h;
+      });
+    };
     const r = await modal(`<h3 style="margin-top:0">Header &amp; Footer</h3>
       <div class="hf-grid">
         <span></span><span class="col-h">Left</span><span class="col-h">Centre</span><span class="col-h">Right</span>
@@ -2193,8 +2267,10 @@ ${rows}
         <span class="lbl">Footer</span>${inp('hfFl', hf.footer.l)}${inp('hfFc', hf.footer.c)}${inp('hfFr', hf.footer.r)}
       </div>
       <div class="hf-help">Click to insert: <code data-tok="{page}">{page}</code> page number · <code data-tok="{pages}">{pages}</code> number of pages · <code data-tok="{date}">{date}</code> today · <code data-tok="{title}">{title}</code> document name.<br>Example: <i>Page {page} of {pages}</i></div>
+      <div class="hf-pics">${picRow('header')}${picRow('footer')}</div>
       <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="hfFirst" style="width:auto;height:auto;margin:0" ${hf.firstDifferent ? 'checked' : ''}> Different first page (no header or footer on the cover page)</label>`,
     { ok: 'Apply', cancel: 'Cancel', onOpen: () => {
+      for (const kind of ['header', 'footer']) wirePicRow(kind);
       const target = $(focus === 'footer' ? '#hfFl' : '#hfHl');
       if (target) target.focus();
       let last = target;
@@ -2211,9 +2287,29 @@ ${rows}
     if (r !== 'ok') return;
     const v = (id) => $('#' + id).value;
     setHeaderFooter({
-      header: { l: v('hfHl'), c: v('hfHc'), r: v('hfHr') },
-      footer: { l: v('hfFl'), c: v('hfFc'), r: v('hfFr') },
+      header: { l: v('hfHl'), c: v('hfHc'), r: v('hfHr'), img: pics.header },
+      footer: { l: v('hfFl'), c: v('hfFc'), r: v('hfFr'), img: pics.footer },
       firstDifferent: $('#hfFirst').checked,
+    });
+  }
+  // A picture Word can show: PNG, JPEG and GIF stay as they are, anything else becomes PNG.
+  // Resolves to { src, w, h } (pixels) or null.
+  function wordPicture(src) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const w = img.naturalWidth || 300;
+        const h = img.naturalHeight || 150;
+        if (/^data:image\/(png|jpeg|gif);base64,/.test(src)) return resolve({ src, w, h });
+        const scale = Math.min(1, 1200 / Math.max(w, h));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * scale));
+        c.height = Math.max(1, Math.round(h * scale));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        try { resolve({ src: c.toDataURL('image/png'), w, h }); } catch (_) { resolve(null); }
+      };
+      img.onerror = () => resolve(null);
+      img.src = src;
     });
   }
   function setHeaderFooter(hf, quiet) {
@@ -2224,7 +2320,14 @@ ${rows}
     if (!quiet) markDirty();
   }
   function normalizeHf(hf) {
-    const s = (o) => ({ l: (o && o.l) || '', c: (o && o.c) || '', r: (o && o.r) || '' });
+    const s = (o) => {
+      const out = { l: (o && o.l) || '', c: (o && o.c) || '', r: (o && o.r) || '' };
+      const im = o && o.img;
+      if (im && typeof im.src === 'string' && /^data:image\//.test(im.src)) {
+        out.img = { slot: ['l', 'c', 'r'].includes(im.slot) ? im.slot : 'l', src: im.src, w: +im.w || 0, h: +im.h || 12 };
+      }
+      return out;
+    };
     return { header: s(hf && hf.header), footer: s(hf && hf.footer), firstDifferent: !!(hf && hf.firstDifferent) };
   }
   function pageNumbers(kind) {
@@ -2256,10 +2359,24 @@ ${rows}
   }
   function marginBoxes() {
     const hf = state.hf;
-    const box = (name, text, align) => `@${name} { content: ${cssContent(text)}; font: 9pt Calibri, Carlito, "Segoe UI", sans-serif; color: #444; white-space: pre-wrap; text-align: ${align}; }`;
+    const box = (name, slots, k, align) => {
+      const text = slots[k];
+      let content = cssContent(text);
+      let pic = '';
+      const im = slots.img;
+      if (im && im.slot === k && /^data:image\/[\w.+-]+;base64,[\w+/=]+$/.test(im.src)) {
+        // the picture is the box background, the text sits beside it
+        const h = Math.max(1, Math.min(im.h, state.page.marginMm - 4));
+        const w = im.w ? (im.w * h) / im.h : h;
+        pic = ` background: url("${im.src}") no-repeat ${align} center / ${w.toFixed(2)}mm ${h.toFixed(2)}mm;`;
+        if (text) pic += k === 'r' ? ` padding-right: ${(w + 2).toFixed(2)}mm;` : ` padding-left: ${(w + 2).toFixed(2)}mm;`;
+        if (content === 'none') content = '""';
+      }
+      return `@${name} { content: ${content}; font: 9pt Calibri, Carlito, "Segoe UI", sans-serif; color: #444; white-space: pre-wrap; text-align: ${align};${pic} }`;
+    };
     const all = (h, f) => [
-      box('top-left', h.l, 'left'), box('top-center', h.c, 'center'), box('top-right', h.r, 'right'),
-      box('bottom-left', f.l, 'left'), box('bottom-center', f.c, 'center'), box('bottom-right', f.r, 'right'),
+      box('top-left', h, 'l', 'left'), box('top-center', h, 'c', 'center'), box('top-right', h, 'r', 'right'),
+      box('bottom-left', f, 'l', 'left'), box('bottom-center', f, 'c', 'center'), box('bottom-right', f, 'r', 'right'),
     ].join(' ');
     const blank = { l: '', c: '', r: '' };
     return { main: all(hf.header, hf.footer), first: hf.firstDifferent ? `@page :first { ${all(blank, blank)} }` : '' };
@@ -3013,13 +3130,147 @@ ${rows}
       img.src = url;
     });
   }
+  // Equation -> picture for Word, lowered so it sits on the text line like on screen.
+  function mathToPng(el) {
+    return new Promise((resolve) => {
+      const z = state.zoom;
+      const r = el.getBoundingClientRect();
+      const probe = document.createElement('span');
+      probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+      el.after(probe);
+      const baseline = probe.getBoundingClientRect().top;
+      probe.remove();
+      const w = Math.ceil(r.width / z) + 2;
+      const h = Math.ceil(r.height / z) + 2;
+      const below = Math.max(0, (r.bottom - baseline) / z + 1);
+      const cs = getComputedStyle(el);
+      const m = el.cloneNode(true);
+      m.removeAttribute('data-xid');
+      m.setAttribute('displaystyle', 'true');
+      const font = `font-family:${cs.fontFamily.replace(/"/g, "'")};font-size:${cs.fontSize};color:${cs.color};line-height:normal`;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject x="0" y="0" width="${w}" height="${h}">`
+        + `<div xmlns="http://www.w3.org/1999/xhtml" style="${font};padding:1px 1px 0">${new XMLSerializer().serializeToString(m)}</div></foreignObject></svg>`;
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = w * 3;
+          c.height = h * 3;
+          const ctx = c.getContext('2d');
+          ctx.scale(3, 3);
+          ctx.drawImage(img, 0, 0, w, h);
+          // the lowering travels to the save step as a marker before the picture
+          const drop = Math.round(below * 1.5); // px -> half-points
+          resolve((drop ? `${MK.lower}${drop}${MK.end}` : '') + `<img src="${c.toDataURL('image/png')}" width="${w}" height="${h}" style="width:${w}px;height:${h}px">`);
+        } catch (_) { resolve(''); }
+      };
+      img.onerror = () => resolve('');
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+  }
+
+  // Invisible markers for Word details the converter can't write. main.js (lib/docxmarks.js)
+  // turns them into real Word markup after conversion. Keep the two lists the same.
+  const MK = {
+    tab: '\uE000', smallCaps: '\uE010', caps: '\uE012',
+    floatRight: '\uE030', floatLeft: '\uE031', lower: '\uE032', end: '\uE033',
+    para: '\uE0F0', paraEnd: '\uE0F1',
+  };
+  const hexColor = (c) => {
+    const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c || '');
+    return m ? '#' + [m[1], m[2], m[3]].map((n) => (+n).toString(16).padStart(2, '0')).join('') : c;
+  };
+  async function wordMarkers(clone, liveOf) {
+    const BLOCK = 'p,li,h1,h2,h3,h4,h5,h6,td,th';
+    const props = new Map(); // paragraph -> ['h=567', 't=dot:8640', …]
+    const add = (el, v) => {
+      const b = el.closest(BLOCK);
+      if (!b) return;
+      if (!props.has(b)) props.set(b, []);
+      props.get(b).push(v);
+    };
+    // first-line and hanging indents (twips: 15 per pixel)
+    for (const el of clone.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6')) {
+      const ti = parseFloat(el.style.textIndent) || 0;
+      if (!el.textContent.trim() && !el.querySelector('img')) continue;
+      if (ti < -0.5) add(el, 'h=' + Math.round(-ti * 15));
+      else if (ti > 0.5) add(el, 'f=' + Math.round(ti * 15));
+    }
+    // outline numbers: label, then a tab to the hanging indent
+    for (const sp of clone.querySelectorAll('span[data-label]')) {
+      ['display', 'min-width', 'box-sizing', 'padding-right', 'white-space', 'text-indent'].forEach((k) => sp.style.removeProperty(k));
+      sp.removeAttribute('data-label');
+      sp.append(MK.tab);
+    }
+    // tabs (with dotted / solid leaders): a tab stop where the tab ends on screen
+    for (const sp of clone.querySelectorAll('span[data-tab]')) {
+      const live = liveOf(sp);
+      if (live) {
+        const blk = live.closest(BLOCK) || live.parentElement;
+        const bcs = getComputedStyle(blk);
+        const isCell = /^T[DH]$/.test(blk.tagName);
+        const origin = blk.getBoundingClientRect().left
+          + (isCell ? parseFloat(bcs.paddingLeft) + parseFloat(bcs.borderLeftWidth) : -parseFloat(bcs.marginLeft)) * state.zoom;
+        const pos = Math.round(((live.getBoundingClientRect().right - origin) / state.zoom) * 15);
+        const leader = sp.dataset.tab === 'dot' ? 'dot' : sp.dataset.tab === 'line' ? 'underscore' : 'none';
+        if (pos > 0) add(sp, `t=${leader}:${pos}`);
+      }
+      sp.replaceWith(MK.tab);
+    }
+    // small capitals / capitals
+    for (const el of clone.querySelectorAll('[style]')) {
+      const st = el.style;
+      const sc = /small-caps/.test(st.fontVariantCaps + ' ' + st.fontVariant);
+      const up = st.textTransform === 'uppercase';
+      if (!sc && !up) continue;
+      const mark = (sc ? MK.smallCaps : '') + (up ? MK.caps : '');
+      const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n = tw.nextNode(); n; n = tw.nextNode()) if (n.data.trim()) n.data = mark + n.data;
+      ['font-variant-caps', 'font-variant', 'text-transform'].forEach((k) => st.removeProperty(k));
+    }
+    // the converter only knows font-weight: bold
+    for (const el of clone.querySelectorAll('[style*="font-weight"]')) {
+      const w = parseInt(el.style.fontWeight, 10);
+      if (w) el.style.fontWeight = w >= 600 ? 'bold' : 'normal';
+    }
+    // cell borders: the converter reads "border" / "border-top" shorthands only
+    for (const td of clone.querySelectorAll('td,th')) {
+      const st = td.style;
+      const SIDES = ['Top', 'Right', 'Bottom', 'Left'];
+      if (!SIDES.some((k) => st['border' + k + 'Style'])) continue;
+      const side = (k) => {
+        const bs = st['border' + k + 'Style'];
+        const bw = st['border' + k + 'Width'];
+        return !bs || bs === 'none' || bs === 'hidden' || parseFloat(bw) === 0 ? 'none' : `${bw || '1px'} ${bs} ${hexColor(st['border' + k + 'Color']) || '#000000'}`;
+      };
+      const vals = SIDES.map(side);
+      st.removeProperty('border');
+      const rest = st.cssText;
+      const b = vals.every((v) => v === vals[0]) ? `border: ${vals[0]}` : vals.map((v, i) => `border-${SIDES[i].toLowerCase()}: ${v}`).join('; ');
+      td.setAttribute('style', (rest ? rest + ' ' : '') + b + ';');
+    }
+    // pictures that text wraps around
+    for (const el of clone.querySelectorAll('img.wrap-left, img.wrap-right, .shape.wrap-left, .shape.wrap-right')) {
+      el.before(el.classList.contains('wrap-left') ? MK.floatLeft : MK.floatRight);
+    }
+    // equations become pictures
+    for (const m of Array.from(clone.querySelectorAll('math'))) {
+      const live = liveOf(m);
+      const html = live ? await mathToPng(live) : '';
+      const t = document.createElement('span');
+      if (html) t.innerHTML = html; else t.textContent = m.textContent;
+      m.replaceWith(...t.childNodes);
+    }
+    for (const [b, list] of props) b.prepend(MK.para + list.join(';') + MK.paraEnd);
+  }
+
   async function htmlForDocx() {
     // tag objects so each copy can be matched to its on-screen original
-    const liveObjs = $$('.shape, .textbox, .para-box', editor);
-    liveObjs.forEach((e, i) => (e.dataset.xid = i));
+    const liveObjs = $$('.shape, .textbox, .para-box, span[data-tab], math', editor);
+    liveObjs.forEach((e, i) => e.setAttribute('data-xid', i));
     const clone = editor.cloneNode(true);
-    liveObjs.forEach((e) => delete e.dataset.xid);
-    const liveOf = (c) => liveObjs[+c.dataset.xid];
+    liveObjs.forEach((e) => e.removeAttribute('data-xid'));
+    const liveOf = (c) => liveObjs[+c.getAttribute('data-xid')];
     // Word has no free-floating boxes here: move each one next to the paragraph it sits beside.
     const liveKids = Array.from(editor.children);
     const cloneKids = Array.from(clone.children);
@@ -3034,6 +3285,7 @@ ${rows}
       else clone.prepend(cloneKids[i]);
     });
     stripGaps(clone);
+    await wordMarkers(clone, liveOf);
     const cl = $$('.shape', clone);
     for (let i = 0; i < cl.length; i++) {
       const png = await shapeToPng(liveOf(cl[i]));

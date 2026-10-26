@@ -21,12 +21,12 @@ A simple, friendly document editor for Windows. Word-style ribbon, the usual key
 - **Paragraph borders:** bottom, top, box around paragraphs
 - **Layout:** margins, orientation, page size, columns, page colour
 - **Page view:** real separate pages on screen; print and PDF break pages at the same places
-- **Headers, footers and page numbers:** left / centre / right text, `{page}`, `{pages}`, `{date}`, `{title}`, different first page; saved to Word and read from Word files
+- **Headers, footers and page numbers:** left / centre / right text, `{page}`, `{pages}`, `{date}`, `{title}`, a logo picture, different first page; saved to Word and read from Word files
 - **Autosave & recovery:** a backup is kept while there are unsaved changes and offered after a crash
 - **Recent files:** File tab → Recent and File menu → Open Recent
 - **View:** zoom (or Ctrl + mouse wheel), page view on/off, spell check
 - **Files:** open `.docx`, `.docm`, `.dotx`, `.html`, `.md`, `.txt` directly. Open `.doc`, `.rtf`, `.odt` when Microsoft Word or the free LibreOffice is installed (DocDoc uses it to convert). Save as `.docx`, `.html`, `.txt`; export PDF; print
-- **Existing Word documents** keep their fonts, sizes, colours, highlights, alignment, spacing, indents, headings, bullet/numbered lists, tables (borders and shading), pictures, page size and margins
+- **Existing Word documents** keep their fonts, sizes, colours, highlights, alignment, spacing, indents, headings, bullet/numbered lists and outline numbering (1.1, (a), (i)), tab leaders, tables (borders, shading, merged cells), pictures (including text-wrapped ones), text boxes, equations, footnotes, header/footer logos, page size and margins
 - **Fonts:** every font installed on your PC, plus 30 built-in free fonts (Roboto, Open Sans, Lato, Montserrat, Poppins, Inter, Merriweather, Playfair Display, Lora, EB Garamond, Dancing Script, Fira Code and more). Carlito and Caladea stand in for Calibri and Cambria on PCs without Office. Type in the font box to search
 
 Press **F1** in the app to see every keyboard shortcut.

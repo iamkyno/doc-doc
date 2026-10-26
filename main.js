@@ -10,6 +10,7 @@ const crypto = require('crypto');
 // If the file was later edited in Word, the copy is ignored.
 const EMBED_PART = 'docdoc/content.json';
 const { readHeaderFooter, writeHeaderFooter } = require('./lib/headerfooter');
+const { applyMarks, sectPrLast } = require('./lib/docxmarks');
 const sha1 = (b) => crypto.createHash('sha1').update(b).digest('hex');
 
 let win;
@@ -486,7 +487,7 @@ ipcMain.handle('save-file', async (_e, { filePath, suggestedName, html, editorHt
       });
       const JSZip = require('jszip');
       const zip = await JSZip.loadAsync(Buffer.from(buf));
-      zip.file('word/document.xml', fixTables(await zip.file('word/document.xml').async('string'), tableAlign || []));
+      zip.file('word/document.xml', sectPrLast(applyMarks(fixTables(await zip.file('word/document.xml').async('string'), tableAlign || []))));
       await writeHeaderFooter(zip, page.hf, page, path.parse(target).name);
       const docXml = await zip.file('word/document.xml').async('nodebuffer');
       zip.file(EMBED_PART, JSON.stringify({ check: sha1(docXml), html: editorHtml || html, page }), { createFolders: false });
